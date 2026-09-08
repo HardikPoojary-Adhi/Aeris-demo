@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AERIS - Air Intelligence</title>
+<meta name="description" content="AERIS real-time environmental monitoring dashboard." />
+<link rel="icon" type="image/png" href="logo.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<video class="bg-video" autoplay muted loop playsinline aria-hidden="true"><source src="bgVid.mp4" type="video/mp4"></video>
+<div class="bg-video-overlay"></div>
+<nav class="nav" id="mainNav"><div class="nav-inner">
+  <a href="index.html" class="brand" aria-label="AERIS dashboard"><svg class="brand-mark" viewBox="0 0 32 32" fill="none" aria-hidden="true"><circle cx="16" cy="16" r="14.5" stroke="#35D6E5" stroke-width="1.4" opacity=".35"/><circle cx="16" cy="16" r="9.5" stroke="#35D6E5" stroke-width="1.4" opacity=".6"/><circle cx="16" cy="16" r="3.2" fill="#35D6E5"/></svg><span class="brand-text"><span class="brand-name">AERIS</span><span class="brand-sub">AIR INTELLIGENCE</span></span></a>
+  <div class="nav-meta"><span class="nav-clock" data-live-clock></span><div class="nav-status-pill"><span class="dot-live"></span><span class="status-label" data-status>Connecting</span></div></div>
+</div></nav>
+<main class="shell">
+  <div class="page-head"><div><div class="region-eyebrow">AERIS MONITORING · LIVE DEVICE</div><h1 class="region-title">Air Quality Monitoring</h1></div><div class="freshness"><span class="dot-live"></span>Last synchronized <strong data-last-updated>--</strong></div></div>
+  <div class="dashboard-grid">
+    <section class="card hero-aqi"><div class="hero-copy"><div class="hero-eyebrow">CURRENT AIR QUALITY</div><div class="hero-region">DEVICE 01</div><div class="hero-number-row"><span class="hero-number" data-aqi>--</span><span class="hero-scale">/ 300</span></div><div class="hero-status" data-aqi-status><span class="hero-status-dot"></span><span data-aqi-label>CONNECTING</span></div><div class="hero-foot"><div class="hero-foot-item"><span class="hero-foot-label">DEVICE STATUS</span><span class="hero-foot-value" data-status-detail>--</span></div><div class="hero-foot-item"><span class="hero-foot-label">DOMINANT POLLUTANT</span><span class="hero-foot-value">PM2.5</span></div><div class="hero-foot-item"><span class="hero-foot-label">LAST UPDATED</span><span class="hero-foot-value" data-device-time>--</span></div></div></div><div class="gauge-wrap" data-gauge aria-label="Air quality index gauge"></div></section>
+    <section class="card pollutant-panel" aria-label="Pollutant readings">
+      <div class="pollutant-row"><div class="pollutant-label-group"><span class="pollutant-label">PM2.5</span><span class="pollutant-sub">Fine particulate matter</span></div><div class="pollutant-value-group"><span class="pollutant-value" data-field="pm25">--</span><span class="pollutant-unit">ug/m3</span></div></div>
+      <div class="pollutant-row"><div class="pollutant-label-group"><span class="pollutant-label">PM10</span><span class="pollutant-sub">Coarse particulate matter</span></div><div class="pollutant-value-group"><span class="pollutant-value" data-field="pm10">--</span><span class="pollutant-unit">ug/m3</span></div></div>
+    </section>
+  </div>
+  <section class="section"><div class="section-title">ENVIRONMENTAL CONDITIONS</div><div class="metric-grid">
+    <div class="card metric-card"><div class="metric-top"><div class="metric-label">Temperature</div><div class="metric-icon">&#176;</div></div><div class="metric-value-row"><span class="metric-value" data-field="temp">--</span><span class="metric-unit">C</span></div></div>
+    <div class="card metric-card"><div class="metric-top"><div class="metric-label">Humidity</div><div class="metric-icon">%</div></div><div class="metric-value-row"><span class="metric-value" data-field="humidity">--</span><span class="metric-unit">%</span></div></div>
+    <div class="card metric-card"><div class="metric-top"><div class="metric-label">CO level</div><div class="metric-icon">CO</div></div><div class="metric-value-row"><span class="metric-value" data-field="mq7">--</span><span class="metric-unit">raw</span></div></div>
+    <div class="card metric-card"><div class="metric-top"><div class="metric-label">Other gases</div><div class="metric-icon">MQ</div></div><div class="metric-value-row"><span class="metric-value" data-field="mq135">--</span><span class="metric-unit">raw</span></div></div>
+  </div></section>
+  <footer class="footer"><span class="footer-text">AERIS Air Intelligence · Live environmental data</span><span class="footer-text">Firestore device_01</span></footer>
+</main><script src="script.js"></script>
+</body>
+</html>
