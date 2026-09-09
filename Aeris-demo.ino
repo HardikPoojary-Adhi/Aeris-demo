@@ -10,13 +10,10 @@
 
 // ============================================================
 // AERIS — AIR INTELLIGENCE
-// ESP32 + WiFi Provisioning + Sensors + Firestore
+// ESP32 Wi-Fi Provisioning + Sensors + Firestore
 // ============================================================
 
-
-// ============================================================
-// PIN CONFIGURATION
-// ============================================================
+// -------------------- PINS --------------------
 
 #define DHTPIN 4
 #define DHTTYPE DHT22
@@ -29,10 +26,7 @@
 #define MQ7_PIN 34
 #define MQ135_PIN 35
 
-
-// ============================================================
-// OBJECTS
-// ============================================================
+// -------------------- OBJECTS --------------------
 
 DHT dht(DHTPIN, DHTTYPE);
 
@@ -42,49 +36,30 @@ WebServer server(80);
 
 Preferences preferences;
 
-
-// ============================================================
-// ESP32 SETUP HOTSPOT
-// ============================================================
+// -------------------- ACCESS POINT --------------------
 
 const char* AP_SSID = "ESP32_Setup";
 const char* AP_PASSWORD = "12345678";
 
-
-// ============================================================
-// FIRESTORE
-// ============================================================
+// -------------------- FIRESTORE --------------------
 
 const char* FIRESTORE_URL =
   "https://firestore.googleapis.com/v1/projects/"
-  "aeris-8af63/databases/(default)/documents/"
-  "devices/device_01";
+  "aeris-8af63/databases/(default)/documents/devices/device_01";
 
+// -------------------- DASHBOARD --------------------
 
-// ============================================================
-// WIFI VARIABLES
-// ============================================================
+const char* DASHBOARD_URL =
+  "https://hardikpoojary-adhi.github.io/Aeris-demo/index.html";
+
+// -------------------- WIFI --------------------
 
 String savedSSID = "";
 String savedPassword = "";
 
 bool wifiConnected = false;
 
-
-// ============================================================
-// SENSOR TIMING
-// ============================================================
-
-unsigned long lastSensorRead = 0;
-unsigned long lastFirestoreUpload = 0;
-
-const unsigned long SENSOR_INTERVAL = 2000;
-const unsigned long FIRESTORE_INTERVAL = 10000;
-
-
-// ============================================================
-// SENSOR VALUES
-// ============================================================
+// -------------------- SENSOR VALUES --------------------
 
 float pm25 = 0.0;
 float pm10 = 0.0;
@@ -92,304 +67,137 @@ float pm10 = 0.0;
 float temperature = 0.0;
 float humidity = 0.0;
 
-float mq7 = 0.0;
-float mq135 = 0.0;
+int mq7 = 0;
+int mq135 = 0;
 
 int currentAQI = 0;
 
-String currentStatus = "Unknown";
+String currentStatus = "Good";
+
+// -------------------- TIMING --------------------
+
+unsigned long lastSensorRead = 0;
+unsigned long lastFirestoreUpload = 0;
+
+const unsigned long SENSOR_INTERVAL = 2000;
+const unsigned long FIRESTORE_INTERVAL = 10000;
+
+// -------------------- SDS011 --------------------
+
+float PM_CALIBRATION_FACTOR = 1.0;
+
+// -------------------- RESET BUTTON --------------------
+
+unsigned long resetButtonStart = 0;
+bool resetButtonHeld = false;
 
 
 // ============================================================
-// CALIBRATION
+// FUNCTION PROTOTYPES
 // ============================================================
-
-const float PM_CALIBRATION_FACTOR = 1.0;
-
-
-// ============================================================
-// FUNCTION DECLARATIONS
-// ============================================================
-
-void startSetupAP();
-void setupWebServer();
-
-void handleRoot();
-void handleConnect();
-void handleNotFound();
 
 void loadWiFiCredentials();
 void saveWiFiCredentials(String ssid, String password);
 void clearWiFiCredentials();
 
-bool connectWiFi();
+void startSetupAP();
+bool connectWiFi(String ssid, String password);
+
+void setupWebServer();
+void handleRoot();
+void handleConnect();
+void handleNotFound();
 
 void readSensors();
-bool readSDS011();
+void readSDS011();
 
-int calculateAQI(float concentration);
+int calculateAQI(float pm);
 String getAQIStatus(int aqi);
 
 String getTimestamp();
 
 void uploadSensorData();
 
+void checkResetButton();
+
 
 // ============================================================
-// SETUP
+// WIFI CREDENTIAL STORAGE
 // ============================================================
 
-void setup() {
+void loadWiFiCredentials() {
 
-  Serial.begin(115200);
+  preferences.begin("wifi", true);
 
-  delay(2000);
+  savedSSID = preferences.getString("ssid", "");
+  savedPassword = preferences.getString("password", "");
+
+  preferences.end();
 
   Serial.println();
-  Serial.println("==============================================");
-  Serial.println("        AERIS — AIR INTELLIGENCE");
-  Serial.println("==============================================");
-  Serial.println();
-
-
-  // ----------------------------------------------------------
-  // GPIO
-  // ----------------------------------------------------------
-
-  pinMode(RESET_BUTTON_PIN, INPUT_PULLUP);
-
-  pinMode(MQ7_PIN, INPUT);
-  pinMode(MQ135_PIN, INPUT);
-
-
-  // ----------------------------------------------------------
-  // Check reset button
-  // ----------------------------------------------------------
-
-  if (digitalRead(RESET_BUTTON_PIN) == LOW) {
-
-    Serial.println("[RESET] Button detected.");
-    Serial.println("[RESET] Clearing saved WiFi credentials...");
-
-    clearWiFiCredentials();
-
-    delay(1500);
-
-    Serial.println("[RESET] Restarting ESP32...");
-
-    ESP.restart();
-  }
-
-
-  // ----------------------------------------------------------
-  // Sensors
-  // ----------------------------------------------------------
-
-  dht.begin();
-
-  sdsSerial.begin(
-    9600,
-    SERIAL_8N1,
-    SDS_RX,
-    SDS_TX
-  );
-
-  analogReadResolution(12);
-
-
-  // ----------------------------------------------------------
-  // Load saved WiFi
-  // ----------------------------------------------------------
-
-  loadWiFiCredentials();
-
-
-  // ----------------------------------------------------------
-  // Start ESP32 setup hotspot
-  // ----------------------------------------------------------
-
-  startSetupAP();
-
-
-  // ----------------------------------------------------------
-  // Start web server
-  // ----------------------------------------------------------
-
-  setupWebServer();
-
-
-  // ----------------------------------------------------------
-  // Try saved WiFi
-  // ----------------------------------------------------------
+  Serial.println("===== SAVED WIFI =====");
 
   if (savedSSID.length() > 0) {
 
-    Serial.println();
-    Serial.println("[WIFI] Saved credentials found.");
-    Serial.print("[WIFI] SSID: ");
+    Serial.print("SSID: ");
     Serial.println(savedSSID);
 
-    connectWiFi();
-
   } else {
 
-    Serial.println();
-    Serial.println("[WIFI] No saved credentials.");
-    Serial.println("[WIFI] Waiting for setup through ESP32_Setup.");
+    Serial.println("No saved Wi-Fi credentials.");
   }
 
+  Serial.println("======================");
+}
 
-  // ----------------------------------------------------------
-  // Start NTP if WiFi connected
-  // ----------------------------------------------------------
 
-  if (wifiConnected) {
+void saveWiFiCredentials(String ssid, String password) {
 
-    configTime(
-      19800,
-      0,
-      "pool.ntp.org",
-      "time.nist.gov"
-    );
+  preferences.begin("wifi", false);
 
-    Serial.println("[TIME] NTP started.");
-  }
+  preferences.putString("ssid", ssid);
+  preferences.putString("password", password);
 
+  preferences.end();
+
+  savedSSID = ssid;
+  savedPassword = password;
 
   Serial.println();
-  Serial.println("==============================================");
-  Serial.println("              SYSTEM READY");
-  Serial.println("==============================================");
+  Serial.println("Wi-Fi credentials saved.");
+}
 
-  Serial.print("[SETUP] Connect to WiFi hotspot: ");
-  Serial.println(AP_SSID);
 
-  Serial.println("[SETUP] Open:");
-  Serial.println("        http://192.168.4.1");
+void clearWiFiCredentials() {
+
+  preferences.begin("wifi", false);
+
+  preferences.clear();
+
+  preferences.end();
+
+  savedSSID = "";
+  savedPassword = "";
 
   Serial.println();
+  Serial.println("Wi-Fi credentials cleared.");
 }
 
 
 // ============================================================
-// LOOP
-// ============================================================
-
-void loop() {
-
-  // ----------------------------------------------------------
-  // Web server
-  // ----------------------------------------------------------
-
-  server.handleClient();
-
-
-  // ----------------------------------------------------------
-  // Check reset button
-  // ----------------------------------------------------------
-
-  static unsigned long resetPressedAt = 0;
-
-  if (digitalRead(RESET_BUTTON_PIN) == LOW) {
-
-    if (resetPressedAt == 0) {
-      resetPressedAt = millis();
-    }
-
-    if (millis() - resetPressedAt > 3000) {
-
-      Serial.println();
-      Serial.println("[RESET] Button held for 3 seconds.");
-      Serial.println("[RESET] Clearing WiFi credentials...");
-
-      clearWiFiCredentials();
-
-      delay(1000);
-
-      ESP.restart();
-    }
-
-  } else {
-
-    resetPressedAt = 0;
-  }
-
-
-  // ----------------------------------------------------------
-  // Sensor reading
-  // ----------------------------------------------------------
-
-  if (millis() - lastSensorRead >= SENSOR_INTERVAL) {
-
-    lastSensorRead = millis();
-
-    readSensors();
-  }
-
-
-  // ----------------------------------------------------------
-  // Firestore upload
-  // ----------------------------------------------------------
-
-  if (
-    wifiConnected &&
-    millis() - lastFirestoreUpload >= FIRESTORE_INTERVAL
-  ) {
-
-    lastFirestoreUpload = millis();
-
-    uploadSensorData();
-  }
-
-
-  // ----------------------------------------------------------
-  // Check WiFi
-  // ----------------------------------------------------------
-
-  if (savedSSID.length() > 0) {
-
-    if (WiFi.status() == WL_CONNECTED) {
-
-      wifiConnected = true;
-
-    } else {
-
-      if (wifiConnected) {
-
-        Serial.println();
-        Serial.println("[WIFI] Connection lost.");
-
-      }
-
-      wifiConnected = false;
-    }
-  }
-
-
-  delay(2);
-}
-
-
-// ============================================================
-// START ESP32 SETUP HOTSPOT
+// START ESP32 ACCESS POINT
 // ============================================================
 
 void startSetupAP() {
 
   Serial.println();
-  Serial.println("[AP] Starting ESP32 setup hotspot...");
-
+  Serial.println("Starting ESP32 setup hotspot...");
 
   WiFi.disconnect(true, true);
 
-  delay(1000);
-
-
-  // AP + Station simultaneously
-  WiFi.mode(WIFI_AP_STA);
-
   delay(500);
 
+  WiFi.mode(WIFI_AP_STA);
 
   bool result = WiFi.softAP(
     AP_SSID,
@@ -399,11 +207,12 @@ void startSetupAP() {
     4
   );
 
-
   if (result) {
 
     Serial.println();
-    Serial.println("******** AP STARTED ********");
+    Serial.println("================================");
+    Serial.println("ESP32 SETUP HOTSPOT STARTED");
+    Serial.println("================================");
 
     Serial.print("SSID: ");
     Serial.println(AP_SSID);
@@ -411,328 +220,16 @@ void startSetupAP() {
     Serial.print("Password: ");
     Serial.println(AP_PASSWORD);
 
-    Serial.print("IP: ");
+    Serial.print("Setup IP: ");
     Serial.println(WiFi.softAPIP());
 
-    Serial.println("*****************************");
+    Serial.println("================================");
+    Serial.println();
 
   } else {
 
-    Serial.println();
-    Serial.println("[AP] ERROR: Failed to start hotspot.");
+    Serial.println("ERROR: Failed to start Access Point.");
   }
-}
-
-
-// ============================================================
-// WEB SERVER
-// ============================================================
-
-void setupWebServer() {
-
-  server.on(
-    "/",
-    HTTP_GET,
-    handleRoot
-  );
-
-
-  server.on(
-    "/connect",
-    HTTP_POST,
-    handleConnect
-  );
-
-
-  server.on(
-    "/reset",
-    HTTP_GET,
-    []() {
-
-      clearWiFiCredentials();
-
-      server.send(
-        200,
-        "text/html",
-        "<html>"
-        "<head>"
-        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-        "</head>"
-        "<body>"
-        "<h2>WiFi credentials cleared.</h2>"
-        "<p>Restarting ESP32...</p>"
-        "</body>"
-        "</html>"
-      );
-
-      delay(1000);
-
-      ESP.restart();
-    }
-  );
-
-
-  server.onNotFound(handleNotFound);
-
-
-  server.begin();
-
-  Serial.println("[WEB] Server started.");
-}
-
-
-// ============================================================
-// ROOT PAGE
-// ============================================================
-
-void handleRoot() {
-
-  String html = R"rawliteral(
-<!DOCTYPE html>
-<html>
-
-<head>
-
-<meta name="viewport"
-      content="width=device-width, initial-scale=1">
-
-<title>AERIS WiFi Setup</title>
-
-<style>
-
-* {
-  box-sizing: border-box;
-}
-
-body {
-
-  margin: 0;
-  padding: 20px;
-
-  min-height: 100vh;
-
-  font-family:
-    Arial,
-    Helvetica,
-    sans-serif;
-
-  background:
-    linear-gradient(
-      145deg,
-      #050912,
-      #091525
-    );
-
-  color: #eafcff;
-
-  display: flex;
-
-  justify-content: center;
-
-  align-items: center;
-}
-
-.card {
-
-  width: 100%;
-  max-width: 430px;
-
-  padding: 30px;
-
-  border-radius: 22px;
-
-  background:
-    rgba(10, 23, 38, 0.94);
-
-  border:
-    1px solid
-    rgba(53, 214, 229, 0.25);
-
-  box-shadow:
-    0 20px 60px
-    rgba(0,0,0,0.45);
-}
-
-.logo {
-
-  font-size: 28px;
-
-  font-weight: 800;
-
-  letter-spacing: 3px;
-
-  color: #35d6e5;
-
-  margin-bottom: 5px;
-}
-
-.subtitle {
-
-  color: #8da5b5;
-
-  margin-bottom: 25px;
-}
-
-label {
-
-  display: block;
-
-  margin-top: 16px;
-  margin-bottom: 7px;
-
-  color: #9bb3c2;
-
-  font-size: 14px;
-}
-
-input {
-
-  width: 100%;
-
-  padding: 14px;
-
-  border-radius: 12px;
-
-  border:
-    1px solid
-    #263d50;
-
-  background: #07111d;
-
-  color: white;
-
-  outline: none;
-
-  font-size: 15px;
-}
-
-input:focus {
-
-  border-color: #35d6e5;
-
-  box-shadow:
-    0 0 0 2px
-    rgba(53,214,229,0.12);
-}
-
-button {
-
-  width: 100%;
-
-  margin-top: 24px;
-
-  padding: 15px;
-
-  border: none;
-
-  border-radius: 12px;
-
-  background: #35d6e5;
-
-  color: #041017;
-
-  font-size: 16px;
-
-  font-weight: 700;
-
-  cursor: pointer;
-}
-
-.status {
-
-  margin-top: 22px;
-
-  padding: 14px;
-
-  border-radius: 12px;
-
-  background: #07111d;
-
-  color: #8da5b5;
-
-  font-size: 14px;
-}
-
-</style>
-
-</head>
-
-
-<body>
-
-<div class="card">
-
-  <div class="logo">
-    AERIS
-  </div>
-
-  <div class="subtitle">
-    Air Intelligence — WiFi Setup
-  </div>
-
-
-  <form action="/connect"
-        method="POST">
-
-    <label>
-      WiFi Network
-    </label>
-
-    <input
-      type="text"
-      name="ssid"
-      placeholder="Enter WiFi name"
-      required
-    >
-
-
-    <label>
-      WiFi Password
-    </label>
-
-    <input
-      type="password"
-      name="password"
-      placeholder="Enter WiFi password"
-    >
-
-
-    <button type="submit">
-      Connect & Save
-    </button>
-
-  </form>
-
-
-  <div class="status">
-
-    <b>ESP32 Setup Network</b>
-
-    <br><br>
-
-    SSID:
-    ESP32_Setup
-
-    <br>
-
-    IP:
-    192.168.4.1
-
-  </div>
-
-</div>
-
-</body>
-
-</html>
-)rawliteral";
-
-
-  server.send(
-    200,
-    "text/html",
-    html
-  );
 }
 
 
@@ -740,70 +237,19 @@ button {
 // CONNECT TO WIFI
 // ============================================================
 
-void handleConnect() {
-
-  if (!server.hasArg("ssid")) {
-
-    server.send(
-      400,
-      "text/html",
-      "<h2>Missing WiFi SSID.</h2>"
-    );
-
-    return;
-  }
-
-
-  String ssid =
-    server.arg("ssid");
-
-  String password =
-    server.arg("password");
-
-
-  ssid.trim();
-
-
-  if (ssid.length() == 0) {
-
-    server.send(
-      400,
-      "text/html",
-      "<h2>SSID cannot be empty.</h2>"
-    );
-
-    return;
-  }
-
+bool connectWiFi(String ssid, String password) {
 
   Serial.println();
-  Serial.println("==============================================");
-  Serial.println("[WIFI] New credentials received");
-  Serial.println("==============================================");
+  Serial.println("================================");
+  Serial.println("CONNECTING TO WIFI");
+  Serial.println("================================");
 
-  Serial.print("[WIFI] SSID: ");
+  Serial.print("SSID: ");
   Serial.println(ssid);
 
-  Serial.println("[WIFI] Connecting...");
+  WiFi.begin(ssid.c_str(), password.c_str());
 
-
-  // ----------------------------------------------------------
-  // Try new network
-  // ----------------------------------------------------------
-
-  WiFi.disconnect(false);
-
-  delay(500);
-
-  WiFi.begin(
-    ssid.c_str(),
-    password.c_str()
-  );
-
-
-  unsigned long startTime =
-    millis();
-
+  unsigned long startTime = millis();
 
   while (
     WiFi.status() != WL_CONNECTED &&
@@ -815,125 +261,297 @@ void handleConnect() {
     Serial.print(".");
   }
 
-
   Serial.println();
-
-
-  // ----------------------------------------------------------
-  // SUCCESS
-  // ----------------------------------------------------------
 
   if (WiFi.status() == WL_CONNECTED) {
 
     wifiConnected = true;
 
-
-    // Save credentials permanently
-    saveWiFiCredentials(
-      ssid,
-      password
-    );
-
-
-    configTime(
-      19800,
-      0,
-      "pool.ntp.org",
-      "time.nist.gov"
-    );
-
-
     Serial.println();
-    Serial.println("******** WIFI CONNECTED ********");
+    Serial.println("================================");
+    Serial.println("WIFI CONNECTED");
+    Serial.println("================================");
 
     Serial.print("SSID: ");
-    Serial.println(ssid);
+    Serial.println(WiFi.SSID());
 
-    Serial.print("IP: ");
+    Serial.print("IP Address: ");
     Serial.println(WiFi.localIP());
 
-    Serial.println("Credentials saved.");
+    Serial.print("Signal Strength: ");
+    Serial.print(WiFi.RSSI());
+    Serial.println(" dBm");
 
-    Serial.println("********************************");
+    Serial.println("================================");
+    Serial.println();
+
+    return true;
+
+  } else {
+
+    wifiConnected = false;
+
+    Serial.println();
+    Serial.println("================================");
+    Serial.println("WIFI CONNECTION FAILED");
+    Serial.println("================================");
+    Serial.println();
+
+    return false;
+  }
+}
 
 
-    String html = R"rawliteral(
+// ============================================================
+// SETUP WEB SERVER
+// ============================================================
+
+void setupWebServer() {
+
+  server.on("/", HTTP_GET, handleRoot);
+
+  server.on("/connect", HTTP_POST, handleConnect);
+
+  server.on("/reset", HTTP_GET, []() {
+
+    clearWiFiCredentials();
+
+    server.send(
+      200,
+      "text/html",
+      "<html><body>"
+      "<h2>Wi-Fi credentials cleared.</h2>"
+      "<p>Restarting ESP32...</p>"
+      "</body></html>"
+    );
+
+    delay(1000);
+
+    ESP.restart();
+  });
+
+  server.onNotFound(handleNotFound);
+
+  server.begin();
+
+  Serial.println("Web server started.");
+}
+
+
+// ============================================================
+// SETUP PAGE
+// ============================================================
+
+void handleRoot() {
+
+  String html = R"rawliteral(
+
 <!DOCTYPE html>
-
-<html>
+<html lang="en">
 
 <head>
 
-<meta name="viewport"
-      content="width=device-width, initial-scale=1">
+<meta charset="UTF-8">
 
-<title>AERIS Connected</title>
+<meta name="viewport"
+content="width=device-width, initial-scale=1.0">
+
+<title>AERIS — Device Setup</title>
 
 <style>
 
+:root {
+  --bg: #050a12;
+  --bg2: #081321;
+  --text: #edfaff;
+  --muted: #8298aa;
+  --cyan: #35d6e5;
+  --border: rgba(53,214,229,0.18);
+}
+
+* {
+  box-sizing: border-box;
+}
+
 body {
-
   margin: 0;
-
   min-height: 100vh;
 
+  font-family: Arial, sans-serif;
+
+  color: var(--text);
+
+  background:
+    radial-gradient(
+      circle at top right,
+      rgba(53,214,229,0.08),
+      transparent 35%
+    ),
+    linear-gradient(
+      135deg,
+      var(--bg),
+      var(--bg2)
+    );
+
   display: flex;
-
-  align-items: center;
-
   justify-content: center;
-
-  background: #060a10;
-
-  color: white;
-
-  font-family: Arial;
+  align-items: center;
 
   padding: 20px;
 }
 
+.container {
+  width: 100%;
+  max-width: 480px;
+}
+
+.brand {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.brand-title {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: 4px;
+  color: var(--cyan);
+}
+
+.brand-sub {
+  margin-top: 7px;
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
 .card {
+
+  background:
+    linear-gradient(
+      145deg,
+      rgba(14,29,46,0.96),
+      rgba(7,17,29,0.96)
+    );
+
+  border: 1px solid var(--border);
+
+  border-radius: 18px;
+
+  padding: 28px;
+
+  box-shadow:
+    0 20px 60px
+    rgba(0,0,0,0.4);
+}
+
+.header {
+  margin-bottom: 26px;
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 23px;
+}
+
+.header p {
+  margin-top: 9px;
+  color: var(--muted);
+  line-height: 1.5;
+  font-size: 14px;
+}
+
+label {
+  display: block;
+  margin: 18px 0 8px;
+  font-size: 13px;
+  color: #a8bdca;
+}
+
+input {
 
   width: 100%;
 
-  max-width: 420px;
-
-  padding: 30px;
-
-  border-radius: 22px;
-
-  background: #0a1422;
-
-  text-align: center;
-
-  border:
-    1px solid
-    rgba(53,214,229,.3);
-}
-
-.ok {
-
-  font-size: 55px;
-
-  margin-bottom: 10px;
-}
-
-h1 {
-
-  color: #35d6e5;
-}
-
-.ip {
-
-  padding: 14px;
-
-  margin-top: 20px;
-
-  background: #07111d;
+  padding: 14px 15px;
 
   border-radius: 12px;
 
-  font-family: monospace;
+  border:
+    1px solid rgba(255,255,255,0.08);
+
+  background: #07111d;
+
+  color: white;
+
+  font-size: 15px;
+
+  outline: none;
+}
+
+input:focus {
+
+  border-color: var(--cyan);
+
+  box-shadow:
+    0 0 0 3px
+    rgba(53,214,229,0.08);
+}
+
+button {
+
+  width: 100%;
+
+  margin-top: 25px;
+
+  padding: 14px;
+
+  border: none;
+
+  border-radius: 12px;
+
+  background: var(--cyan);
+
+  color: #031016;
+
+  font-size: 15px;
+
+  font-weight: 800;
+
+  cursor: pointer;
+}
+
+.info {
+
+  margin-top: 22px;
+
+  padding: 13px 15px;
+
+  border-radius: 12px;
+
+  background:
+    rgba(53,214,229,0.05);
+
+  border:
+    1px solid rgba(53,214,229,0.1);
+
+  color: var(--muted);
+
+  font-size: 12px;
+
+  line-height: 1.5;
+}
+
+.footer {
+
+  text-align: center;
+
+  margin-top: 18px;
+
+  font-size: 10px;
+
+  letter-spacing: 2px;
+
+  color: #506574;
 }
 
 </style>
@@ -942,48 +560,239 @@ h1 {
 
 <body>
 
-<div class="card">
+<div class="container">
 
-<div class="ok">
-✓
+<div class="brand">
+
+<div class="brand-title">
+AERIS
 </div>
 
+<div class="brand-sub">
+Air Intelligence
+</div>
+
+</div>
+
+<div class="card">
+
+<div class="header">
+
 <h1>
-WiFi Connected
+Device Network Setup
 </h1>
 
 <p>
-AERIS is now connected to your WiFi network.
+Connect your AERIS monitoring device
+to your local Wi-Fi network.
 </p>
-
-<div class="ip">
-
-ESP32 IP:
-)rawliteral";
-
-
-    html += WiFi.localIP().toString();
-
-
-    html += R"rawliteral(
 
 </div>
 
-<p>
-Your WiFi credentials have been saved.
-</p>
+<form action="/connect" method="POST">
 
-<p>
-You can now close this page.
-</p>
+<label>
+Wi-Fi Network
+</label>
+
+<input
+type="text"
+name="ssid"
+placeholder="Enter Wi-Fi name"
+required
+>
+
+<label>
+Wi-Fi Password
+</label>
+
+<input
+type="password"
+name="password"
+placeholder="Enter Wi-Fi password"
+>
+
+<button type="submit">
+Connect Device
+</button>
+
+</form>
+
+<div class="info">
+
+<strong>Setup Network</strong><br>
+
+Connected through:
+<b>ESP32_Setup</b><br>
+
+Device address:
+<b>192.168.4.1</b>
+
+</div>
+
+</div>
+
+<div class="footer">
+
+AERIS — AIR INTELLIGENCE
+
+</div>
 
 </div>
 
 </body>
 
 </html>
+
 )rawliteral";
 
+  server.send(
+    200,
+    "text/html",
+    html
+  );
+}
+
+
+// ============================================================
+// HANDLE WIFI CONNECTION
+// ============================================================
+
+void handleConnect() {
+
+  if (!server.hasArg("ssid")) {
+
+    server.send(
+      400,
+      "text/html",
+      "<h2>Missing Wi-Fi SSID.</h2>"
+    );
+
+    return;
+  }
+
+  String ssid = server.arg("ssid");
+
+  String password = "";
+
+  if (server.hasArg("password")) {
+
+    password = server.arg("password");
+  }
+
+  Serial.println();
+  Serial.println("Wi-Fi credentials received from browser.");
+
+  bool success = connectWiFi(ssid, password);
+
+
+  // ================= SUCCESS =================
+
+  if (success) {
+
+    saveWiFiCredentials(
+      ssid,
+      password
+    );
+
+    String ip =
+      WiFi.localIP().toString();
+
+    String html =
+      "<!DOCTYPE html>"
+      "<html>"
+      "<head>"
+      "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
+
+      "<style>"
+
+      "body{"
+      "margin:0;"
+      "min-height:100vh;"
+      "display:flex;"
+      "align-items:center;"
+      "justify-content:center;"
+      "background:#050a12;"
+      "color:#edfaff;"
+      "font-family:Arial;"
+      "padding:20px;"
+      "}"
+
+      ".card{"
+      "max-width:520px;"
+      "width:100%;"
+      "padding:32px;"
+      "text-align:center;"
+      "background:#0b1726;"
+      "border:1px solid rgba(53,214,229,.18);"
+      "border-radius:20px;"
+      "}"
+
+      ".logo{"
+      "color:#35d6e5;"
+      "font-size:30px;"
+      "font-weight:bold;"
+      "letter-spacing:5px;"
+      "}"
+
+      ".success{"
+      "font-size:50px;"
+      "color:#55e6a5;"
+      "margin:20px;"
+      "}"
+
+      ".ip{"
+      "margin:20px;"
+      "padding:12px;"
+      "background:#07111d;"
+      "border-radius:10px;"
+      "color:#35d6e5;"
+      "}"
+
+      "a{"
+      "display:block;"
+      "margin-top:20px;"
+      "padding:15px;"
+      "background:#35d6e5;"
+      "color:#031016;"
+      "text-decoration:none;"
+      "border-radius:12px;"
+      "font-weight:bold;"
+      "}"
+
+      "</style>"
+
+      "</head>"
+
+      "<body>"
+
+      "<div class='card'>"
+
+      "<div class='logo'>AERIS</div>"
+
+      "<div class='success'>✓</div>"
+
+      "<h1>Connection Established</h1>"
+
+      "<p>Your AERIS monitoring device is now connected "
+      "and ready for cloud synchronization.</p>"
+
+      "<div class='ip'>Device IP: " +
+      ip +
+      "</div>"
+
+      "<a href='" +
+      String(DASHBOARD_URL) +
+      "' target='_blank'>"
+
+      "Open AERIS Dashboard →"
+
+      "</a>"
+
+      "</div>"
+
+      "</body>"
+      "</html>";
 
     server.send(
       200,
@@ -991,23 +800,14 @@ You can now close this page.
       html
     );
 
-
     return;
   }
 
 
-  // ----------------------------------------------------------
-  // FAILED
-  // ----------------------------------------------------------
-
-  wifiConnected = false;
-
-
-  Serial.println();
-  Serial.println("[WIFI] Connection FAILED.");
-
+  // ================= FAILED =================
 
   String html = R"rawliteral(
+
 <!DOCTYPE html>
 
 <html>
@@ -1015,9 +815,9 @@ You can now close this page.
 <head>
 
 <meta name="viewport"
-      content="width=device-width, initial-scale=1">
+content="width=device-width, initial-scale=1.0">
 
-<title>AERIS WiFi Error</title>
+<title>AERIS — Connection Failed</title>
 
 <style>
 
@@ -1033,40 +833,51 @@ body {
 
   justify-content: center;
 
-  background: #060a10;
-
-  color: white;
-
-  font-family: Arial;
-
   padding: 20px;
+
+  background: #050a12;
+
+  color: #edfaff;
+
+  font-family: Arial, sans-serif;
 }
 
 .card {
 
-  width: 100%;
+  max-width: 480px;
 
-  max-width: 420px;
+  width: 100%;
 
   padding: 30px;
 
-  border-radius: 22px;
-
-  background: #0a1422;
-
   text-align: center;
+
+  background: #0b1726;
+
+  border:
+    1px solid
+    rgba(255,255,255,0.08);
+
+  border-radius: 18px;
 }
 
 h1 {
 
-  color: #ff7373;
+  font-size: 24px;
+}
+
+p {
+
+  color: #8298aa;
+
+  line-height: 1.6;
 }
 
 button {
 
-  margin-top: 20px;
+  margin-top: 15px;
 
-  padding: 14px 25px;
+  padding: 13px 20px;
 
   border: none;
 
@@ -1074,7 +885,11 @@ button {
 
   background: #35d6e5;
 
+  color: #031016;
+
   font-weight: bold;
+
+  cursor: pointer;
 }
 
 </style>
@@ -1090,15 +905,19 @@ Connection Failed
 </h1>
 
 <p>
-Could not connect to the WiFi network.
-</p>
 
-<p>
-Check the SSID and password and try again.
+The ESP32 could not connect to the
+provided Wi-Fi network.
+
+Please check the network name and
+password and try again.
+
 </p>
 
 <button onclick="location.href='/'">
+
 Try Again
+
 </button>
 
 </div>
@@ -1106,8 +925,8 @@ Try Again
 </body>
 
 </html>
-)rawliteral";
 
+)rawliteral";
 
   server.send(
     200,
@@ -1118,7 +937,7 @@ Try Again
 
 
 // ============================================================
-// 404
+// NOT FOUND
 // ============================================================
 
 void handleNotFound() {
@@ -1132,551 +951,220 @@ void handleNotFound() {
 
 
 // ============================================================
-// LOAD SAVED WIFI CREDENTIALS
-// ============================================================
-
-void loadWiFiCredentials() {
-
-  preferences.begin(
-    "wifi",
-    true
-  );
-
-
-  savedSSID =
-    preferences.getString(
-      "ssid",
-      ""
-    );
-
-
-  savedPassword =
-    preferences.getString(
-      "password",
-      ""
-    );
-
-
-  preferences.end();
-
-
-  Serial.println();
-
-  Serial.println("[MEMORY] WiFi credentials:");
-
-  if (savedSSID.length() > 0) {
-
-    Serial.print("SSID: ");
-    Serial.println(savedSSID);
-
-    Serial.println("Password: SAVED");
-
-  } else {
-
-    Serial.println("No credentials saved.");
-  }
-}
-
-
-// ============================================================
-// SAVE WIFI CREDENTIALS
-// ============================================================
-
-void saveWiFiCredentials(
-  String ssid,
-  String password
-) {
-
-  preferences.begin(
-    "wifi",
-    false
-  );
-
-
-  preferences.putString(
-    "ssid",
-    ssid
-  );
-
-
-  preferences.putString(
-    "password",
-    password
-  );
-
-
-  preferences.end();
-
-
-  savedSSID = ssid;
-  savedPassword = password;
-
-
-  Serial.println("[MEMORY] WiFi credentials saved.");
-}
-
-
-// ============================================================
-// CLEAR WIFI CREDENTIALS
-// ============================================================
-
-void clearWiFiCredentials() {
-
-  preferences.begin(
-    "wifi",
-    false
-  );
-
-
-  preferences.clear();
-
-
-  preferences.end();
-
-
-  savedSSID = "";
-  savedPassword = "";
-
-
-  Serial.println("[MEMORY] WiFi credentials cleared.");
-}
-
-
-// ============================================================
-// CONNECT USING SAVED WIFI
-// ============================================================
-
-bool connectWiFi() {
-
-  if (savedSSID.length() == 0) {
-
-    Serial.println(
-      "[WIFI] No saved SSID."
-    );
-
-    return false;
-  }
-
-
-  Serial.println();
-  Serial.println("[WIFI] Connecting to saved network...");
-
-  Serial.print("[WIFI] SSID: ");
-  Serial.println(savedSSID);
-
-
-  WiFi.begin(
-    savedSSID.c_str(),
-    savedPassword.c_str()
-  );
-
-
-  unsigned long startTime =
-    millis();
-
-
-  while (
-    WiFi.status() != WL_CONNECTED &&
-    millis() - startTime < 20000
-  ) {
-
-    delay(500);
-
-    Serial.print(".");
-  }
-
-
-  Serial.println();
-
-
-  if (WiFi.status() == WL_CONNECTED) {
-
-    wifiConnected = true;
-
-
-    Serial.println();
-    Serial.println("******** WIFI CONNECTED ********");
-
-    Serial.print("IP: ");
-    Serial.println(WiFi.localIP());
-
-    Serial.println("********************************");
-
-
-    configTime(
-      19800,
-      0,
-      "pool.ntp.org",
-      "time.nist.gov"
-    );
-
-
-    return true;
-  }
-
-
-  wifiConnected = false;
-
-
-  Serial.println(
-    "[WIFI] Could not connect using saved credentials."
-  );
-
-
-  return false;
-}
-
-
-// ============================================================
-// READ ALL SENSORS
+// DHT + MQ + SDS SENSOR READING
 // ============================================================
 
 void readSensors() {
 
-  // ----------------------------------------------------------
-  // DHT22
-  // ----------------------------------------------------------
-
-  float newHumidity =
-    dht.readHumidity();
-
+  // ---------------- DHT22 ----------------
 
   float newTemperature =
     dht.readTemperature();
 
+  float newHumidity =
+    dht.readHumidity();
 
-  if (
-    !isnan(newHumidity) &&
-    !isnan(newTemperature)
-  ) {
+  if (!isnan(newTemperature)) {
 
-    humidity =
-      newHumidity;
+    temperature = newTemperature;
+  }
 
-    temperature =
-      newTemperature;
+  if (!isnan(newHumidity)) {
+
+    humidity = newHumidity;
   }
 
 
-  // ----------------------------------------------------------
-  // SDS011
-  // ----------------------------------------------------------
+  // ---------------- MQ7 ----------------
+
+  mq7 = analogRead(MQ7_PIN);
+
+
+  // ---------------- MQ135 ----------------
+
+  mq135 = analogRead(MQ135_PIN);
+
+
+  // ---------------- SDS011 ----------------
 
   readSDS011();
 
 
-  // ----------------------------------------------------------
-  // MQ7
-  // ----------------------------------------------------------
-
-  mq7 =
-    analogRead(MQ7_PIN);
-
-
-  // ----------------------------------------------------------
-  // MQ135
-  // ----------------------------------------------------------
-
-  mq135 =
-    analogRead(MQ135_PIN);
-
-
-  // ----------------------------------------------------------
-  // AQI
-  // ----------------------------------------------------------
+  // ---------------- AQI ----------------
 
   currentAQI =
     calculateAQI(pm25);
-
 
   currentStatus =
     getAQIStatus(currentAQI);
 
 
-  // ----------------------------------------------------------
-  // Serial output
-  // ----------------------------------------------------------
+  // ---------------- SERIAL OUTPUT ----------------
 
   Serial.println();
-  Serial.println("--------------- SENSOR DATA ---------------");
+  Serial.println("========== SENSOR DATA ==========");
 
-  Serial.print("Temperature : ");
+  Serial.print("Temperature: ");
   Serial.print(temperature);
   Serial.println(" °C");
 
-  Serial.print("Humidity    : ");
+  Serial.print("Humidity: ");
   Serial.print(humidity);
   Serial.println(" %");
 
-  Serial.print("PM2.5       : ");
+  Serial.print("PM2.5: ");
   Serial.print(pm25);
   Serial.println(" µg/m³");
 
-  Serial.print("PM10        : ");
+  Serial.print("PM10: ");
   Serial.print(pm10);
   Serial.println(" µg/m³");
 
-  Serial.print("MQ7         : ");
+  Serial.print("MQ7: ");
   Serial.println(mq7);
 
-  Serial.print("MQ135       : ");
+  Serial.print("MQ135: ");
   Serial.println(mq135);
 
-  Serial.print("AQI         : ");
+  Serial.print("AQI: ");
   Serial.println(currentAQI);
 
-  Serial.print("Status      : ");
+  Serial.print("Status: ");
   Serial.println(currentStatus);
 
-  Serial.println("-------------------------------------------");
+  Serial.println("=================================");
 }
 
 
 // ============================================================
-// SDS011 READER
+// SDS011 READING
 // ============================================================
 
-bool readSDS011() {
+void readSDS011() {
 
-  static uint8_t buffer[10];
+  while (sdsSerial.available() >= 10) {
 
-  while (sdsSerial.available()) {
+    uint8_t buffer[10];
 
-    uint8_t byteRead =
-      sdsSerial.read();
-
-
-    // --------------------------------------------------------
-    // First header byte
-    // --------------------------------------------------------
-
-    if (byteRead != 0xAA) {
-
+    if (sdsSerial.read() != 0xAA) {
       continue;
     }
-
-
-    // --------------------------------------------------------
-    // Second header byte
-    // --------------------------------------------------------
-
-    unsigned long waitStart =
-      millis();
-
-
-    while (
-      !sdsSerial.available() &&
-      millis() - waitStart < 100
-    ) {
-
-      delay(1);
-    }
-
-
-    if (!sdsSerial.available()) {
-
-      return false;
-    }
-
-
-    if (sdsSerial.read() != 0xC0) {
-
-      continue;
-    }
-
 
     buffer[0] = 0xAA;
-    buffer[1] = 0xC0;
 
+    for (int i = 1; i < 10; i++) {
 
-    // --------------------------------------------------------
-    // Read remaining 8 bytes
-    // --------------------------------------------------------
-
-    int index = 2;
-
-    waitStart = millis();
-
-
-    while (
-      index < 10 &&
-      millis() - waitStart < 200
-    ) {
-
-      if (sdsSerial.available()) {
-
-        buffer[index++] =
-          sdsSerial.read();
-
-        waitStart = millis();
-      }
+      buffer[i] =
+        sdsSerial.read();
     }
 
-
-    if (index < 10) {
-
-      return false;
+    if (buffer[1] != 0xC0) {
+      continue;
     }
-
-
-    // --------------------------------------------------------
-    // Checksum
-    // --------------------------------------------------------
 
     uint8_t checksum = 0;
-
 
     for (int i = 2; i <= 7; i++) {
 
       checksum += buffer[i];
     }
 
-
     if (checksum != buffer[8]) {
-
-      Serial.println(
-        "[SDS011] Checksum error."
-      );
-
-      return false;
+      continue;
     }
-
-
-    // --------------------------------------------------------
-    // End byte
-    // --------------------------------------------------------
 
     if (buffer[9] != 0xAB) {
-
-      return false;
+      continue;
     }
 
+    uint16_t pm25Raw =
+      ((uint16_t)buffer[3] << 8)
+      | buffer[2];
 
-    // --------------------------------------------------------
-    // PM2.5
-    // --------------------------------------------------------
-
-    uint16_t rawPM25 =
-      buffer[2] |
-      (buffer[3] << 8);
-
-
-    // --------------------------------------------------------
-    // PM10
-    // --------------------------------------------------------
-
-    uint16_t rawPM10 =
-      buffer[4] |
-      (buffer[5] << 8);
-
+    uint16_t pm10Raw =
+      ((uint16_t)buffer[5] << 8)
+      | buffer[4];
 
     pm25 =
-      (rawPM25 / 10.0) *
-      PM_CALIBRATION_FACTOR;
-
+      (pm25Raw / 10.0)
+      * PM_CALIBRATION_FACTOR;
 
     pm10 =
-      (rawPM10 / 10.0) *
-      PM_CALIBRATION_FACTOR;
+      (pm10Raw / 10.0)
+      * PM_CALIBRATION_FACTOR;
 
-
-    return true;
+    return;
   }
-
-
-  return false;
 }
 
 
 // ============================================================
 // AQI CALCULATION
-// India-style PM2.5 AQI breakpoints
+// INDIA PM2.5 BREAKPOINTS
 // ============================================================
 
-int calculateAQI(
-  float concentration
-) {
+int calculateAQI(float pm) {
 
-  if (concentration < 0) {
+  if (pm <= 30.0) {
 
-    concentration = 0;
+    return round(
+      ((50.0 - 0.0) /
+       (30.0 - 0.0))
+      * pm
+    );
+
+  } else if (pm <= 60.0) {
+
+    return round(
+      ((100.0 - 51.0) /
+       (60.0 - 30.0))
+      * (pm - 30.0)
+      + 51.0
+    );
+
+  } else if (pm <= 90.0) {
+
+    return round(
+      ((200.0 - 101.0) /
+       (90.0 - 60.0))
+      * (pm - 60.0)
+      + 101.0
+    );
+
+  } else if (pm <= 120.0) {
+
+    return round(
+      ((300.0 - 201.0) /
+       (120.0 - 90.0))
+      * (pm - 90.0)
+      + 201.0
+    );
+
+  } else if (pm <= 250.0) {
+
+    return round(
+      ((400.0 - 301.0) /
+       (250.0 - 120.0))
+      * (pm - 120.0)
+      + 301.0
+    );
+
+  } else {
+
+    int aqi =
+      round(
+        ((500.0 - 401.0) /
+         (500.0 - 250.0))
+        * (pm - 250.0)
+        + 401.0
+      );
+
+    return constrain(
+      aqi,
+      401,
+      500
+    );
   }
-
-
-  float c = concentration;
-
-
-  float aqi;
-
-
-  if (c <= 30) {
-
-    aqi =
-      0 +
-      (c - 0) *
-      (50.0 - 0.0) /
-      (30.0 - 0.0);
-  }
-
-  else if (c <= 60) {
-
-    aqi =
-      51 +
-      (c - 31) *
-      (100.0 - 51.0) /
-      (60.0 - 31.0);
-  }
-
-  else if (c <= 90) {
-
-    aqi =
-      101 +
-      (c - 61) *
-      (200.0 - 101.0) /
-      (90.0 - 61.0);
-  }
-
-  else if (c <= 120) {
-
-    aqi =
-      201 +
-      (c - 91) *
-      (300.0 - 201.0) /
-      (120.0 - 91.0);
-  }
-
-  else if (c <= 250) {
-
-    aqi =
-      301 +
-      (c - 121) *
-      (400.0 - 301.0) /
-      (250.0 - 121.0);
-  }
-
-  else {
-
-    aqi =
-      401 +
-      (c - 251) *
-      (500.0 - 401.0) /
-      (350.0 - 251.0);
-  }
-
-
-  if (aqi < 0) {
-
-    aqi = 0;
-  }
-
-
-  if (aqi > 500) {
-
-    aqi = 500;
-  }
-
-
-  return round(aqi);
 }
 
 
@@ -1684,36 +1172,29 @@ int calculateAQI(
 // AQI STATUS
 // ============================================================
 
-String getAQIStatus(
-  int aqi
-) {
+String getAQIStatus(int aqi) {
 
   if (aqi <= 50) {
 
     return "Good";
-  }
 
-  else if (aqi <= 100) {
+  } else if (aqi <= 100) {
 
     return "Satisfactory";
-  }
 
-  else if (aqi <= 200) {
+  } else if (aqi <= 200) {
 
     return "Moderate";
-  }
 
-  else if (aqi <= 300) {
+  } else if (aqi <= 300) {
 
     return "Poor";
-  }
 
-  else if (aqi <= 400) {
+  } else if (aqi <= 400) {
 
     return "Very Poor";
-  }
 
-  else {
+  } else {
 
     return "Severe";
   }
@@ -1721,45 +1202,28 @@ String getAQIStatus(
 
 
 // ============================================================
-// GET TIMESTAMP
+// GET IST TIMESTAMP
 // ============================================================
 
 String getTimestamp() {
 
   struct tm timeinfo;
 
+  if (!getLocalTime(&timeinfo)) {
 
-  if (
-    getLocalTime(
-      &timeinfo,
-      1000
-    )
-  ) {
-
-    char timestamp[32];
-
-
-    strftime(
-      timestamp,
-      sizeof(timestamp),
-      "%Y-%m-%d %H:%M:%S",
-      &timeinfo
-    );
-
-
-    return String(timestamp);
+    return "Not Synced";
   }
 
+  char buffer[32];
 
-  // Fallback if NTP hasn't synced yet
+  strftime(
+    buffer,
+    sizeof(buffer),
+    "%Y-%m-%d %H:%M:%S",
+    &timeinfo
+  );
 
-  return String(
-    "Uptime: "
-  ) +
-  String(
-    millis() / 1000
-  ) +
-  "s";
+  return String(buffer);
 }
 
 
@@ -1769,194 +1233,385 @@ String getTimestamp() {
 
 void uploadSensorData() {
 
-  if (
-    WiFi.status() != WL_CONNECTED
-  ) {
+  if (WiFi.status() != WL_CONNECTED) {
+
+    wifiConnected = false;
 
     Serial.println(
-      "[FIRESTORE] WiFi not connected."
+      "Firestore skipped: Wi-Fi disconnected."
     );
 
     return;
   }
 
+  wifiConnected = true;
 
   WiFiClientSecure client;
 
-
-  // ----------------------------------------------------------
-  // For prototype/testing.
-  // Production should use proper certificate validation.
-  // ----------------------------------------------------------
-
   client.setInsecure();
-
 
   HTTPClient http;
 
-
-  Serial.println();
-  Serial.println("[FIRESTORE] Uploading data...");
-
-
-  if (
-    !http.begin(
-      client,
-      FIRESTORE_URL
-    )
-  ) {
+  if (!http.begin(
+        client,
+        FIRESTORE_URL
+      )) {
 
     Serial.println(
-      "[FIRESTORE] HTTP begin failed."
+      "Firestore HTTP begin failed."
     );
 
     return;
   }
-
 
   http.addHeader(
     "Content-Type",
     "application/json"
   );
 
-
-  // ----------------------------------------------------------
-  // Build Firestore JSON
-  // ----------------------------------------------------------
-
   String timestamp =
     getTimestamp();
 
+
+  // ==========================================================
+  // CREATE FIRESTORE JSON
+  // ==========================================================
 
   String json = "{";
 
   json += "\"fields\":{";
 
-
-  // AQI
-
   json +=
-    "\"aqi\":{"
-    "\"integerValue\":" +
+    "\"aqi\":{\"integerValue\":\"" +
     String(currentAQI) +
-    "},";
-
-
-  // Status
+    "\"},";
 
   json +=
-    "\"status\":{"
-    "\"stringValue\":\"" +
+    "\"status\":{\"stringValue\":\"" +
     currentStatus +
     "\"},";
 
-
-  // Temperature
-
   json +=
-    "\"temp\":{"
-    "\"doubleValue\":" +
+    "\"temp\":{\"doubleValue\":" +
     String(temperature, 2) +
     "},";
 
-
-  // Humidity
-
   json +=
-    "\"humidity\":{"
-    "\"doubleValue\":" +
+    "\"humidity\":{\"doubleValue\":" +
     String(humidity, 2) +
     "},";
 
-
-  // PM2.5
-
   json +=
-    "\"pm25\":{"
-    "\"doubleValue\":" +
+    "\"pm25\":{\"doubleValue\":" +
     String(pm25, 2) +
     "},";
 
-
-  // PM10
-
   json +=
-    "\"pm10\":{"
-    "\"doubleValue\":" +
+    "\"pm10\":{\"doubleValue\":" +
     String(pm10, 2) +
     "},";
 
-
-  // MQ7
+  json +=
+    "\"mq7\":{\"integerValue\":\"" +
+    String(mq7) +
+    "\"},";
 
   json +=
-    "\"mq7\":{"
-    "\"doubleValue\":" +
-    String(mq7, 2) +
-    "},";
-
-
-  // MQ135
+    "\"mq135\":{\"integerValue\":\"" +
+    String(mq135) +
+    "\"},";
 
   json +=
-    "\"mq135\":{"
-    "\"doubleValue\":" +
-    String(mq135, 2) +
-    "},";
-
-
-  // Timestamp
-
-  json +=
-    "\"last_updated\":{"
-    "\"stringValue\":\"" +
+    "\"last_updated\":{\"stringValue\":\"" +
     timestamp +
     "\"}";
 
+  json += "}";
 
   json += "}";
 
 
-  json += "}";
+  // ==========================================================
+  // UPLOAD
+  // ==========================================================
 
-
-  // ----------------------------------------------------------
-  // PATCH Firestore document
-  // ----------------------------------------------------------
+  Serial.println();
+  Serial.println("Uploading data to Firestore...");
 
   int httpCode =
     http.PATCH(json);
 
-
-  Serial.print(
-    "[FIRESTORE] HTTP code: "
-  );
-
-  Serial.println(
-    httpCode
-  );
+  Serial.print("Firestore HTTP code: ");
+  Serial.println(httpCode);
 
 
-  if (
-    httpCode >= 200 &&
-    httpCode < 300
-  ) {
+  if (httpCode > 0) {
+
+    String response =
+      http.getString();
+
+    if (
+      httpCode >= 200 &&
+      httpCode < 300
+    ) {
+
+      Serial.println(
+        "Firestore upload successful."
+      );
+
+    } else {
+
+      Serial.println(
+        "Firestore returned an error:"
+      );
+
+      Serial.println(response);
+    }
+
+  } else {
+
+    Serial.print(
+      "Firestore request failed: "
+    );
 
     Serial.println(
-      "[FIRESTORE] Upload successful."
+      http.errorToString(httpCode)
+    );
+  }
+
+  http.end();
+}
+
+
+// ============================================================
+// RESET BUTTON
+// ============================================================
+
+void checkResetButton() {
+
+  bool pressed =
+    digitalRead(RESET_BUTTON_PIN) == LOW;
+
+  if (pressed) {
+
+    if (!resetButtonHeld) {
+
+      resetButtonHeld = true;
+
+      resetButtonStart =
+        millis();
+
+      Serial.println(
+        "Reset button pressed."
+      );
+    }
+
+    if (
+      millis() - resetButtonStart >= 3000
+    ) {
+
+      Serial.println();
+      Serial.println(
+        "RESET BUTTON HELD FOR 3 SECONDS."
+      );
+
+      Serial.println(
+        "Clearing Wi-Fi credentials..."
+      );
+
+      clearWiFiCredentials();
+
+      delay(500);
+
+      ESP.restart();
+    }
+
+  } else {
+
+    resetButtonHeld = false;
+  }
+}
+
+
+// ============================================================
+// SETUP
+// ============================================================
+
+void setup() {
+
+  Serial.begin(115200);
+
+  delay(1000);
+
+  Serial.println();
+  Serial.println();
+  Serial.println("================================");
+  Serial.println("        AERIS DEVICE BOOT       ");
+  Serial.println("================================");
+
+
+  // ---------------- RESET BUTTON ----------------
+
+  pinMode(
+    RESET_BUTTON_PIN,
+    INPUT_PULLUP
+  );
+
+
+  // ---------------- SENSORS ----------------
+
+  dht.begin();
+
+
+  sdsSerial.begin(
+    9600,
+    SERIAL_8N1,
+    SDS_RX,
+    SDS_TX
+  );
+
+
+  analogReadResolution(12);
+
+
+  // ---------------- WIFI CREDENTIALS ----------------
+
+  loadWiFiCredentials();
+
+
+  // ---------------- ACCESS POINT ----------------
+
+  startSetupAP();
+
+
+  // ---------------- WEB SERVER ----------------
+
+  setupWebServer();
+
+
+  // ---------------- NTP ----------------
+
+  configTime(
+    19800,
+    0,
+    "pool.ntp.org",
+    "time.nist.gov"
+  );
+
+
+  // ---------------- SAVED WIFI ----------------
+
+  if (savedSSID.length() > 0) {
+
+    Serial.println(
+      "Saved Wi-Fi credentials found."
+    );
+
+    connectWiFi(
+      savedSSID,
+      savedPassword
     );
 
   } else {
 
+    Serial.println();
+
     Serial.println(
-      "[FIRESTORE] Upload failed."
+      "No saved Wi-Fi credentials."
     );
 
     Serial.println(
-      http.getString()
+      "Connect to ESP32_Setup"
+    );
+
+    Serial.println(
+      "and open http://192.168.4.1"
     );
   }
 
 
-  http.end();
+  Serial.println();
+  Serial.println("================================");
+  Serial.println("AERIS READY");
+  Serial.println("================================");
+
+  Serial.print(
+    "Setup page: http://"
+  );
+
+  Serial.println(
+    WiFi.softAPIP()
+  );
+
+
+  if (wifiConnected) {
+
+    Serial.print(
+      "Wi-Fi IP: "
+    );
+
+    Serial.println(
+      WiFi.localIP()
+    );
+  }
+
+  Serial.println("================================");
+}
+
+
+// ============================================================
+// MAIN LOOP
+// ============================================================
+
+void loop() {
+
+  server.handleClient();
+
+  checkResetButton();
+
+
+  // ----------------------------------------------------------
+  // SENSOR READING
+  // ----------------------------------------------------------
+
+  if (
+    millis() - lastSensorRead >= SENSOR_INTERVAL
+  ) {
+
+    lastSensorRead =
+      millis();
+
+    readSensors();
+  }
+
+
+  // ----------------------------------------------------------
+  // WIFI CONNECTION STATE
+  // ----------------------------------------------------------
+
+  if (
+    WiFi.status() == WL_CONNECTED
+  ) {
+
+    wifiConnected = true;
+
+  } else {
+
+    wifiConnected = false;
+  }
+
+
+  // ----------------------------------------------------------
+  // FIRESTORE UPLOAD
+  // ----------------------------------------------------------
+
+  if (
+    millis() - lastFirestoreUpload >= FIRESTORE_INTERVAL
+  ) {
+
+    lastFirestoreUpload =
+      millis();
+
+    uploadSensorData();
+  }
 }
