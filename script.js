@@ -457,11 +457,11 @@ function updateDashboard(fields) {
 
 
   /* ==========================================================
-     DEBUG TEMPERATURE
+     DEBUG tempERATURE
      ========================================================== */
 
   console.log(
-    "AERIS temperature raw:",
+    "AERIS temperatureraw:",
     fields.temperature
   );
 
@@ -507,7 +507,7 @@ function updateDashboard(fields) {
 
 
   /* ==========================================================
-     EXPLICIT TEMPERATURE UPDATE
+     EXPLICIT temperature UPDATE
      
      This is deliberately separate from the generic updater.
      ========================================================== */
