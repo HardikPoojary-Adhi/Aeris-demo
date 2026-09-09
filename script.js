@@ -20,43 +20,48 @@ const REFRESH_INTERVAL = 5000;
    DOM HELPER
    ============================================================ */
 
-const $ = (selector) =>
-  document.querySelector(selector);
+const $ = (selector) => {
+  return document.querySelector(selector);
+};
 
 
 /* ============================================================
    FIRESTORE VALUE READER
    ============================================================ */
 
-const fieldValue = (field) => {
+function fieldValue(field) {
 
   if (!field) {
     return null;
   }
 
-
+  // Firestore integer
   if (field.integerValue !== undefined) {
     return Number(field.integerValue);
   }
 
-
+  // Firestore double
   if (field.doubleValue !== undefined) {
     return Number(field.doubleValue);
   }
 
-
+  // Firestore string
   if (field.stringValue !== undefined) {
     return field.stringValue;
   }
 
-
+  // Firestore boolean
   if (field.booleanValue !== undefined) {
     return field.booleanValue;
   }
 
+  // Firestore timestamp
+  if (field.timestampValue !== undefined) {
+    return field.timestampValue;
+  }
 
   return null;
-};
+}
 
 
 /* ============================================================
@@ -99,23 +104,19 @@ const AQI_CATEGORIES = [
 
 
 /* ============================================================
-   CLASSIFY AQI
+   AQI CLASSIFICATION
    ============================================================ */
 
 function classifyAQI(value) {
 
   return (
-
     AQI_CATEGORIES.find(
       (category) => value <= category.max
     )
-
     ||
-
     AQI_CATEGORIES[
       AQI_CATEGORIES.length - 1
     ]
-
   );
 
 }
@@ -125,21 +126,16 @@ function classifyAQI(value) {
    NUMBER FORMATTER
    ============================================================ */
 
-function formatValue(
-  value,
-  decimals = 1
-) {
+function formatValue(value, decimals = 1) {
 
   if (
     value === null ||
     value === undefined ||
+    value === "" ||
     Number.isNaN(Number(value))
   ) {
-
     return "--";
-
   }
-
 
   return Number(value).toFixed(decimals);
 
@@ -147,28 +143,28 @@ function formatValue(
 
 
 /* ============================================================
-   TEXT UPDATE HELPER
+   TEXT UPDATE
    ============================================================ */
 
-function setText(
-  selector,
-  value,
-  fallback = "--"
-) {
+function setText(selector, value, fallback = "--") {
 
   document
     .querySelectorAll(selector)
     .forEach((element) => {
 
-      element.textContent =
-
+      if (
         value === null ||
         value === undefined ||
         value === ""
+      ) {
 
-          ? fallback
+        element.textContent = fallback;
 
-          : value;
+      } else {
+
+        element.textContent = value;
+
+      }
 
     });
 
@@ -179,10 +175,7 @@ function setText(
    AQI GAUGE
    ============================================================ */
 
-function renderGauge(
-  container,
-  value
-) {
+function renderGauge(container, value) {
 
   if (!container) {
     return;
@@ -218,10 +211,6 @@ function renderGauge(
     Math.PI;
 
 
-  /* ----------------------------------------------------------
-     Point on circle
-     ---------------------------------------------------------- */
-
   const point = (
     theta,
     r = radius
@@ -240,20 +229,12 @@ function renderGauge(
   });
 
 
-  /* ----------------------------------------------------------
-     Needle
-     ---------------------------------------------------------- */
-
   const needle =
     point(
       angle,
       78
     );
 
-
-  /* ----------------------------------------------------------
-     Tick marks
-     ---------------------------------------------------------- */
 
   const ticks = [
 
@@ -290,10 +271,8 @@ function renderGauge(
       return `
 
         <line
-
           x1="${outer.x}"
           y1="${outer.y}"
-
           x2="${inner.x}"
           y2="${inner.y}"
 
@@ -302,7 +281,6 @@ function renderGauge(
           stroke-opacity=".7"
 
           stroke-width="2"
-
         />
 
       `;
@@ -311,10 +289,6 @@ function renderGauge(
 
     .join("");
 
-
-  /* ----------------------------------------------------------
-     Gauge track
-     ---------------------------------------------------------- */
 
   const gaugeTrack = `
 
@@ -337,10 +311,6 @@ function renderGauge(
 
   `;
 
-
-  /* ----------------------------------------------------------
-     Active arc
-     ---------------------------------------------------------- */
 
   const activeEnd =
     point(angle);
@@ -375,10 +345,6 @@ function renderGauge(
 
       : "";
 
-
-  /* ----------------------------------------------------------
-     Render SVG
-     ---------------------------------------------------------- */
 
   container.innerHTML = `
 
@@ -431,7 +397,6 @@ function renderGauge(
       <text
 
         x="120"
-
         y="147"
 
         text-anchor="middle"
@@ -462,28 +427,54 @@ function renderGauge(
 function updateDashboard(fields) {
 
 
+  console.log(
+    "AERIS Firestore fields:",
+    fields
+  );
+
+
   /* ----------------------------------------------------------
-     Convert Firestore typed fields into normal JS values
+     Convert Firestore fields
      ---------------------------------------------------------- */
 
-  const values =
-    Object.fromEntries(
-
-      Object.entries(fields)
-
-        .map(
-          ([key, value]) => [
-            key,
-            fieldValue(value)
-          ]
-        )
-
-    );
+  const values = {};
 
 
-  /* ----------------------------------------------------------
+  Object.entries(fields).forEach(
+    ([key, value]) => {
+
+      values[key] =
+        fieldValue(value);
+
+    }
+  );
+
+
+  console.log(
+    "AERIS parsed values:",
+    values
+  );
+
+
+  /* ==========================================================
+     DEBUG TEMPERATURE
+     ========================================================== */
+
+  console.log(
+    "AERIS temperature raw:",
+    fields.temperature
+  );
+
+
+  console.log(
+    "AERIS temperature parsed:",
+    values.temperature
+  );
+
+
+  /* ==========================================================
      AQI
-     ---------------------------------------------------------- */
+     ========================================================== */
 
   const aqi =
     Number(values.aqi) || 0;
@@ -493,9 +484,9 @@ function updateDashboard(fields) {
     classifyAQI(aqi);
 
 
-  /* ----------------------------------------------------------
-     Generic data-field elements
-     ---------------------------------------------------------- */
+  /* ==========================================================
+     NORMAL DATA FIELDS
+     ========================================================== */
 
   document
     .querySelectorAll("[data-field]")
@@ -505,17 +496,58 @@ function updateDashboard(fields) {
         element.dataset.field;
 
 
+      const value =
+        values[fieldName];
+
+
       element.textContent =
-        formatValue(
-          values[fieldName]
-        );
+        formatValue(value);
 
     });
 
 
-  /* ----------------------------------------------------------
-     AQI number
-     ---------------------------------------------------------- */
+  /* ==========================================================
+     EXPLICIT TEMPERATURE UPDATE
+     
+     This is deliberately separate from the generic updater.
+     ========================================================== */
+
+  const temperatureElements =
+    document.querySelectorAll(
+      '[data-field="temperature"]'
+    );
+
+
+  temperatureElements.forEach(
+    (element) => {
+
+      const temperature =
+        values.temperature;
+
+
+      if (
+        temperature !== null &&
+        temperature !== undefined &&
+        !Number.isNaN(Number(temperature))
+      ) {
+
+        element.textContent =
+          Number(temperature).toFixed(1);
+
+      } else {
+
+        element.textContent =
+          "--";
+
+      }
+
+    }
+  );
+
+
+  /* ==========================================================
+     AQI NUMBER
+     ========================================================== */
 
   setText(
     "[data-aqi]",
@@ -523,9 +555,9 @@ function updateDashboard(fields) {
   );
 
 
-  /* ----------------------------------------------------------
-     AQI category
-     ---------------------------------------------------------- */
+  /* ==========================================================
+     AQI LABEL
+     ========================================================== */
 
   setText(
     "[data-aqi-label]",
@@ -533,9 +565,9 @@ function updateDashboard(fields) {
   );
 
 
-  /* ----------------------------------------------------------
-     Device status
-     ---------------------------------------------------------- */
+  /* ==========================================================
+     DEVICE STATUS
+     ========================================================== */
 
   setText(
     "[data-status]",
@@ -549,11 +581,9 @@ function updateDashboard(fields) {
   );
 
 
-  /* ----------------------------------------------------------
-     IMPORTANT:
-     ESP32 sends "timestamp"
-     NOT "last_updated"
-     ---------------------------------------------------------- */
+  /* ==========================================================
+     TIMESTAMP
+     ========================================================== */
 
   setText(
     "[data-device-time]",
@@ -567,9 +597,9 @@ function updateDashboard(fields) {
   );
 
 
-  /* ----------------------------------------------------------
-     AQI status styling
-     ---------------------------------------------------------- */
+  /* ==========================================================
+     AQI STATUS STYLE
+     ========================================================== */
 
   const status =
     $("[data-aqi-status]");
@@ -601,9 +631,9 @@ function updateDashboard(fields) {
   }
 
 
-  /* ----------------------------------------------------------
-     Render gauge
-     ---------------------------------------------------------- */
+  /* ==========================================================
+     GAUGE
+     ========================================================== */
 
   renderGauge(
     $("[data-gauge]"),
@@ -614,12 +644,16 @@ function updateDashboard(fields) {
 
 
 /* ============================================================
-   LOAD DEVICE DATA
+   LOAD FIRESTORE DEVICE
    ============================================================ */
 
 async function loadDevice() {
 
   try {
+
+    console.log(
+      "AERIS: Fetching Firestore..."
+    );
 
 
     const response =
@@ -644,18 +678,11 @@ async function loadDevice() {
       await response.json();
 
 
-    /* --------------------------------------------------------
-       Firestore REST response structure:
+    console.log(
+      "AERIS Firestore response:",
+      documentData
+    );
 
-       {
-         fields: {
-           temperature: {
-             doubleValue: 28.4
-           }
-         }
-       }
-
-       -------------------------------------------------------- */
 
     updateDashboard(
       documentData.fields || {}
@@ -664,9 +691,8 @@ async function loadDevice() {
 
   } catch (error) {
 
-
     console.error(
-      "Unable to load Firestore device data",
+      "AERIS: Unable to load Firestore device data",
       error
     );
 
@@ -713,7 +739,7 @@ function updateClock() {
 
 
 /* ============================================================
-   INITIALIZE DASHBOARD
+   INITIALIZATION
    ============================================================ */
 
 document.addEventListener(
@@ -734,15 +760,10 @@ document.addEventListener(
 
 
     /* --------------------------------------------------------
-       Initial Firestore load
+       Firestore
        -------------------------------------------------------- */
 
     loadDevice();
-
-
-    /* --------------------------------------------------------
-       Refresh Firestore every 5 seconds
-       -------------------------------------------------------- */
 
     setInterval(
       loadDevice,
@@ -751,7 +772,7 @@ document.addEventListener(
 
 
     /* --------------------------------------------------------
-       Navbar scroll effect
+       Navbar
        -------------------------------------------------------- */
 
     window.addEventListener(
