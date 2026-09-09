@@ -20,48 +20,38 @@ const REFRESH_INTERVAL = 5000;
    DOM HELPER
    ============================================================ */
 
-const $ = (selector) => {
-  return document.querySelector(selector);
-};
+const $ = (selector) =>
+  document.querySelector(selector);
 
 
 /* ============================================================
    FIRESTORE VALUE READER
    ============================================================ */
 
-function fieldValue(field) {
+const fieldValue = (field) => {
 
   if (!field) {
     return null;
   }
 
-  // Firestore integer
   if (field.integerValue !== undefined) {
     return Number(field.integerValue);
   }
 
-  // Firestore double
   if (field.doubleValue !== undefined) {
     return Number(field.doubleValue);
   }
 
-  // Firestore string
   if (field.stringValue !== undefined) {
     return field.stringValue;
   }
 
-  // Firestore boolean
   if (field.booleanValue !== undefined) {
     return field.booleanValue;
   }
 
-  // Firestore timestamp
-  if (field.timestampValue !== undefined) {
-    return field.timestampValue;
-  }
-
   return null;
-}
+};
 
 
 /* ============================================================
@@ -104,19 +94,23 @@ const AQI_CATEGORIES = [
 
 
 /* ============================================================
-   AQI CLASSIFICATION
+   CLASSIFY AQI
    ============================================================ */
 
 function classifyAQI(value) {
 
   return (
+
     AQI_CATEGORIES.find(
       (category) => value <= category.max
     )
+
     ||
+
     AQI_CATEGORIES[
       AQI_CATEGORIES.length - 1
     ]
+
   );
 
 }
@@ -126,15 +120,19 @@ function classifyAQI(value) {
    NUMBER FORMATTER
    ============================================================ */
 
-function formatValue(value, decimals = 1) {
+function formatValue(
+  value,
+  decimals = 1
+) {
 
   if (
     value === null ||
     value === undefined ||
-    value === "" ||
     Number.isNaN(Number(value))
   ) {
+
     return "--";
+
   }
 
   return Number(value).toFixed(decimals);
@@ -143,28 +141,28 @@ function formatValue(value, decimals = 1) {
 
 
 /* ============================================================
-   TEXT UPDATE
+   TEXT UPDATE HELPER
    ============================================================ */
 
-function setText(selector, value, fallback = "--") {
+function setText(
+  selector,
+  value,
+  fallback = "--"
+) {
 
   document
     .querySelectorAll(selector)
     .forEach((element) => {
 
-      if (
+      element.textContent =
+
         value === null ||
         value === undefined ||
         value === ""
-      ) {
 
-        element.textContent = fallback;
+          ? fallback
 
-      } else {
-
-        element.textContent = value;
-
-      }
+          : value;
 
     });
 
@@ -175,12 +173,14 @@ function setText(selector, value, fallback = "--") {
    AQI GAUGE
    ============================================================ */
 
-function renderGauge(container, value) {
+function renderGauge(
+  container,
+  value
+) {
 
   if (!container) {
     return;
   }
-
 
   const aqi =
     Math.max(
@@ -191,10 +191,8 @@ function renderGauge(container, value) {
       )
     );
 
-
   const category =
     classifyAQI(aqi);
-
 
   const width = 240;
   const height = 150;
@@ -203,7 +201,6 @@ function renderGauge(container, value) {
   const cy = 130;
 
   const radius = 96;
-
 
   const angle =
     Math.PI -
@@ -253,20 +250,17 @@ function renderGauge(container, value) {
         (tick / 300) *
         Math.PI;
 
-
       const outer =
         point(
           theta,
           106
         );
 
-
       const inner =
         point(
           theta,
           88
         );
-
 
       return `
 
@@ -275,11 +269,8 @@ function renderGauge(container, value) {
           y1="${outer.y}"
           x2="${inner.x}"
           y2="${inner.y}"
-
           stroke="${category.color}"
-
           stroke-opacity=".7"
-
           stroke-width="2"
         />
 
@@ -293,20 +284,14 @@ function renderGauge(container, value) {
   const gaugeTrack = `
 
     <path
-
       d="
         M 24 130
         A 96 96 0 0 1 216 130
       "
-
       fill="none"
-
       stroke="${category.color}"
-
       stroke-opacity=".24"
-
       stroke-width="14"
-
     />
 
   `;
@@ -323,22 +308,16 @@ function renderGauge(container, value) {
       ? `
 
         <path
-
           d="
             M 24 130
             A 96 96 0 0 1
             ${activeEnd.x}
             ${activeEnd.y}
           "
-
           fill="none"
-
           stroke="${category.color}"
-
           stroke-width="14"
-
           stroke-linecap="round"
-
         />
 
       `
@@ -349,13 +328,9 @@ function renderGauge(container, value) {
   container.innerHTML = `
 
     <svg
-
       viewBox="0 0 ${width} ${height}"
-
       role="img"
-
       aria-label="AQI ${formatValue(aqi, 0)}"
-
     >
 
       ${gaugeTrack}
@@ -364,49 +339,30 @@ function renderGauge(container, value) {
 
       ${ticks}
 
-
       <line
-
         x1="120"
         y1="130"
-
         x2="${needle.x}"
         y2="${needle.y}"
-
         stroke="${category.color}"
-
         stroke-width="3"
-
         stroke-linecap="round"
-
       />
-
 
       <circle
-
         cx="120"
         cy="130"
-
         r="6"
-
         fill="${category.color}"
-
       />
 
-
       <text
-
         x="120"
         y="147"
-
         text-anchor="middle"
-
         fill="${category.color}"
-
         font-size="9"
-
         font-family="JetBrains Mono, monospace"
-
       >
 
         AQI / 300
@@ -427,54 +383,56 @@ function renderGauge(container, value) {
 function updateDashboard(fields) {
 
 
-  console.log(
-    "AERIS Firestore fields:",
-    fields
-  );
+  /* ----------------------------------------------------------
+     Convert Firestore typed fields into normal JS values
+     ---------------------------------------------------------- */
+
+  const values =
+    Object.fromEntries(
+
+      Object.entries(fields)
+
+        .map(
+          ([key, value]) => [
+            key,
+            fieldValue(value)
+          ]
+        )
+
+    );
+
+
+  /* ==========================================================
+     TEMPERATURE FIX
+
+     ESP32 sends: temp
+     Website previously expected: temperature
+
+     Create an alias so BOTH work safely.
+     ========================================================== */
+
+  if (
+    values.temp !== undefined &&
+    values.temperature === undefined
+  ) {
+
+    values.temperature = values.temp;
+
+  }
+
+  if (
+    values.temperature !== undefined &&
+    values.temp === undefined
+  ) {
+
+    values.temp = values.temperature;
+
+  }
 
 
   /* ----------------------------------------------------------
-     Convert Firestore fields
-     ---------------------------------------------------------- */
-
-  const values = {};
-
-
-  Object.entries(fields).forEach(
-    ([key, value]) => {
-
-      values[key] =
-        fieldValue(value);
-
-    }
-  );
-
-
-  console.log(
-    "AERIS parsed values:",
-    values
-  );
-
-
-  /* ==========================================================
-     DEBUG tempERATURE
-     ========================================================== */
-
-  console.log(
-    "AERIS temperatureraw:",
-    fields.temperature
-  );
-
-
-  console.log(
-    "AERIS temperature parsed:",
-    values.temperature
-  );
-
-
-  /* ==========================================================
      AQI
-     ========================================================== */
+     ---------------------------------------------------------- */
 
   const aqi =
     Number(values.aqi) || 0;
@@ -484,9 +442,9 @@ function updateDashboard(fields) {
     classifyAQI(aqi);
 
 
-  /* ==========================================================
-     NORMAL DATA FIELDS
-     ========================================================== */
+  /* ----------------------------------------------------------
+     Generic data-field elements
+     ---------------------------------------------------------- */
 
   document
     .querySelectorAll("[data-field]")
@@ -495,59 +453,17 @@ function updateDashboard(fields) {
       const fieldName =
         element.dataset.field;
 
-
-      const value =
-        values[fieldName];
-
-
       element.textContent =
-        formatValue(value);
+        formatValue(
+          values[fieldName]
+        );
 
     });
 
 
-  /* ==========================================================
-     EXPLICIT temperature UPDATE
-     
-     This is deliberately separate from the generic updater.
-     ========================================================== */
-
-  const temperatureElements =
-    document.querySelectorAll(
-      '[data-field="temperature"]'
-    );
-
-
-  temperatureElements.forEach(
-    (element) => {
-
-      const temperature =
-        values.temperature;
-
-
-      if (
-        temperature !== null &&
-        temperature !== undefined &&
-        !Number.isNaN(Number(temperature))
-      ) {
-
-        element.textContent =
-          Number(temperature).toFixed(1);
-
-      } else {
-
-        element.textContent =
-          "--";
-
-      }
-
-    }
-  );
-
-
-  /* ==========================================================
-     AQI NUMBER
-     ========================================================== */
+  /* ----------------------------------------------------------
+     AQI number
+     ---------------------------------------------------------- */
 
   setText(
     "[data-aqi]",
@@ -555,9 +471,9 @@ function updateDashboard(fields) {
   );
 
 
-  /* ==========================================================
-     AQI LABEL
-     ========================================================== */
+  /* ----------------------------------------------------------
+     AQI category
+     ---------------------------------------------------------- */
 
   setText(
     "[data-aqi-label]",
@@ -565,9 +481,9 @@ function updateDashboard(fields) {
   );
 
 
-  /* ==========================================================
-     DEVICE STATUS
-     ========================================================== */
+  /* ----------------------------------------------------------
+     Device status
+     ---------------------------------------------------------- */
 
   setText(
     "[data-status]",
@@ -581,9 +497,9 @@ function updateDashboard(fields) {
   );
 
 
-  /* ==========================================================
-     TIMESTAMP
-     ========================================================== */
+  /* ----------------------------------------------------------
+     Timestamp
+     ---------------------------------------------------------- */
 
   setText(
     "[data-device-time]",
@@ -597,9 +513,9 @@ function updateDashboard(fields) {
   );
 
 
-  /* ==========================================================
-     AQI STATUS STYLE
-     ========================================================== */
+  /* ----------------------------------------------------------
+     AQI status styling
+     ---------------------------------------------------------- */
 
   const status =
     $("[data-aqi-status]");
@@ -609,7 +525,6 @@ function updateDashboard(fields) {
 
     status.style.color =
       category.color;
-
 
     status.style.backgroundColor =
       `${category.color}20`;
@@ -631,9 +546,9 @@ function updateDashboard(fields) {
   }
 
 
-  /* ==========================================================
-     GAUGE
-     ========================================================== */
+  /* ----------------------------------------------------------
+     Render AQI gauge
+     ---------------------------------------------------------- */
 
   renderGauge(
     $("[data-gauge]"),
@@ -644,17 +559,12 @@ function updateDashboard(fields) {
 
 
 /* ============================================================
-   LOAD FIRESTORE DEVICE
+   LOAD DEVICE DATA
    ============================================================ */
 
 async function loadDevice() {
 
   try {
-
-    console.log(
-      "AERIS: Fetching Firestore..."
-    );
-
 
     const response =
       await fetch(
@@ -678,11 +588,18 @@ async function loadDevice() {
       await response.json();
 
 
-    console.log(
-      "AERIS Firestore response:",
-      documentData
-    );
+    /* --------------------------------------------------------
+       Firestore REST response example:
 
+       {
+         fields: {
+           temp: {
+             doubleValue: 28.4
+           }
+         }
+       }
+
+       -------------------------------------------------------- */
 
     updateDashboard(
       documentData.fields || {}
@@ -692,7 +609,7 @@ async function loadDevice() {
   } catch (error) {
 
     console.error(
-      "AERIS: Unable to load Firestore device data",
+      "Unable to load Firestore device data",
       error
     );
 
@@ -739,7 +656,7 @@ function updateClock() {
 
 
 /* ============================================================
-   INITIALIZATION
+   INITIALIZE DASHBOARD
    ============================================================ */
 
 document.addEventListener(
@@ -760,10 +677,15 @@ document.addEventListener(
 
 
     /* --------------------------------------------------------
-       Firestore
+       Initial Firestore load
        -------------------------------------------------------- */
 
     loadDevice();
+
+
+    /* --------------------------------------------------------
+       Refresh Firestore every 5 seconds
+       -------------------------------------------------------- */
 
     setInterval(
       loadDevice,
@@ -772,7 +694,7 @@ document.addEventListener(
 
 
     /* --------------------------------------------------------
-       Navbar
+       Navbar scroll effect
        -------------------------------------------------------- */
 
     window.addEventListener(
