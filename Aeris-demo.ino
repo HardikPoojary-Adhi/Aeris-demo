@@ -78,9 +78,13 @@ String currentStatus = "Good";
 
 unsigned long lastSensorRead = 0;
 unsigned long lastFirestoreUpload = 0;
+unsigned long lastWiFiReconnectAttempt = 0;
 
 const unsigned long SENSOR_INTERVAL = 2000;
 const unsigned long FIRESTORE_INTERVAL = 10000;
+
+// Retry Wi-Fi every 30 seconds if it drops
+const unsigned long WIFI_RECONNECT_INTERVAL = 30000;
 
 // -------------------- SDS011 --------------------
 
@@ -102,6 +106,8 @@ void clearWiFiCredentials();
 
 void startSetupAP();
 bool connectWiFi(String ssid, String password);
+void stopWiFiStation();
+void printWiFiStatus();
 
 void setupWebServer();
 void handleRoot();
@@ -129,8 +135,11 @@ void loadWiFiCredentials() {
 
   preferences.begin("wifi", true);
 
-  savedSSID = preferences.getString("ssid", "");
-  savedPassword = preferences.getString("password", "");
+  savedSSID =
+    preferences.getString("ssid", "");
+
+  savedPassword =
+    preferences.getString("password", "");
 
   preferences.end();
 
@@ -151,12 +160,21 @@ void loadWiFiCredentials() {
 }
 
 
+// ============================================================
+
 void saveWiFiCredentials(String ssid, String password) {
 
   preferences.begin("wifi", false);
 
-  preferences.putString("ssid", ssid);
-  preferences.putString("password", password);
+  preferences.putString(
+    "ssid",
+    ssid
+  );
+
+  preferences.putString(
+    "password",
+    password
+  );
 
   preferences.end();
 
@@ -167,6 +185,8 @@ void saveWiFiCredentials(String ssid, String password) {
   Serial.println("Wi-Fi credentials saved.");
 }
 
+
+// ============================================================
 
 void clearWiFiCredentials() {
 
@@ -193,19 +213,24 @@ void startSetupAP() {
   Serial.println();
   Serial.println("Starting ESP32 setup hotspot...");
 
-  WiFi.disconnect(true, true);
+  // Completely stop any previous Wi-Fi activity
+  WiFi.disconnect(true, false);
 
   delay(500);
 
+  // AP + Station mode
   WiFi.mode(WIFI_AP_STA);
 
-  bool result = WiFi.softAP(
-    AP_SSID,
-    AP_PASSWORD,
-    1,
-    false,
-    4
-  );
+  delay(200);
+
+  bool result =
+    WiFi.softAP(
+      AP_SSID,
+      AP_PASSWORD,
+      1,
+      false,
+      4
+    );
 
   if (result) {
 
@@ -228,7 +253,102 @@ void startSetupAP() {
 
   } else {
 
-    Serial.println("ERROR: Failed to start Access Point.");
+    Serial.println(
+      "ERROR: Failed to start Access Point."
+    );
+  }
+}
+
+
+// ============================================================
+// STOP WIFI STATION CLEANLY
+// ============================================================
+
+void stopWiFiStation() {
+
+  Serial.println();
+  Serial.println("Stopping previous Wi-Fi connection...");
+
+  // Stop current STA connection completely.
+  // IMPORTANT:
+  // false = do not turn off the Wi-Fi radio
+  // false = do not erase ESP32 internal STA config
+  WiFi.disconnect(true, false);
+
+  delay(700);
+
+  // Re-enable AP + STA mode
+  WiFi.mode(WIFI_AP_STA);
+
+  delay(300);
+
+  // Make sure the setup AP still exists
+  if (WiFi.softAPIP() == IPAddress(0, 0, 0, 0)) {
+
+    Serial.println(
+      "Restarting setup hotspot..."
+    );
+
+    WiFi.softAP(
+      AP_SSID,
+      AP_PASSWORD,
+      1,
+      false,
+      4
+    );
+
+    delay(300);
+  }
+
+  wifiConnected = false;
+
+  Serial.println(
+    "Previous Wi-Fi connection stopped."
+  );
+}
+
+
+// ============================================================
+// PRINT WIFI STATUS
+// ============================================================
+
+void printWiFiStatus() {
+
+  Serial.print("Wi-Fi status: ");
+
+  switch (WiFi.status()) {
+
+    case WL_IDLE_STATUS:
+      Serial.println("IDLE");
+      break;
+
+    case WL_NO_SSID_AVAIL:
+      Serial.println("SSID NOT FOUND");
+      break;
+
+    case WL_SCAN_COMPLETED:
+      Serial.println("SCAN COMPLETED");
+      break;
+
+    case WL_CONNECTED:
+      Serial.println("CONNECTED");
+      break;
+
+    case WL_CONNECT_FAILED:
+      Serial.println("CONNECT FAILED");
+      break;
+
+    case WL_CONNECTION_LOST:
+      Serial.println("CONNECTION LOST");
+      break;
+
+    case WL_DISCONNECTED:
+      Serial.println("DISCONNECTED");
+      break;
+
+    default:
+      Serial.println("UNKNOWN");
+      break;
   }
 }
 
@@ -237,7 +357,10 @@ void startSetupAP() {
 // CONNECT TO WIFI
 // ============================================================
 
-bool connectWiFi(String ssid, String password) {
+bool connectWiFi(
+  String ssid,
+  String password
+) {
 
   Serial.println();
   Serial.println("================================");
@@ -247,23 +370,87 @@ bool connectWiFi(String ssid, String password) {
   Serial.print("SSID: ");
   Serial.println(ssid);
 
-  WiFi.begin(ssid.c_str(), password.c_str());
+  // ----------------------------------------------------------
+  // IMPORTANT FIX
+  // ----------------------------------------------------------
+  // Stop ANY previous STA connection before calling WiFi.begin()
+  // This prevents:
+  //
+  // "sta is connecting, cannot set config"
+  //
+  // ----------------------------------------------------------
 
-  unsigned long startTime = millis();
+  stopWiFiStation();
+
+  delay(500);
+
+  Serial.println();
+  Serial.println("Starting new Wi-Fi connection...");
+
+  // Explicitly keep AP + STA mode
+  WiFi.mode(WIFI_AP_STA);
+
+  delay(200);
+
+  // Start connection
+  if (password.length() == 0) {
+
+    Serial.println(
+      "Connecting to open Wi-Fi network..."
+    );
+
+    WiFi.begin(
+      ssid.c_str()
+    );
+
+  } else {
+
+    WiFi.begin(
+      ssid.c_str(),
+      password.c_str()
+    );
+  }
+
+  unsigned long startTime =
+    millis();
+
+  unsigned long lastDot =
+    millis();
+
+  // ----------------------------------------------------------
+  // WAIT FOR CONNECTION
+  // ----------------------------------------------------------
 
   while (
     WiFi.status() != WL_CONNECTED &&
     millis() - startTime < 20000
   ) {
 
-    delay(500);
+    delay(100);
 
-    Serial.print(".");
+    // Keep web server responsive
+    server.handleClient();
+
+    if (
+      millis() - lastDot >= 500
+    ) {
+
+      Serial.print(".");
+
+      lastDot =
+        millis();
+    }
   }
 
   Serial.println();
 
-  if (WiFi.status() == WL_CONNECTED) {
+  // ----------------------------------------------------------
+  // SUCCESS
+  // ----------------------------------------------------------
+
+  if (
+    WiFi.status() == WL_CONNECTED
+  ) {
 
     wifiConnected = true;
 
@@ -282,23 +469,129 @@ bool connectWiFi(String ssid, String password) {
     Serial.print(WiFi.RSSI());
     Serial.println(" dBm");
 
+    Serial.println();
+
+    Serial.print("Gateway: ");
+    Serial.println(WiFi.gatewayIP());
+
+    Serial.print("DNS: ");
+    Serial.println(WiFi.dnsIP());
+
     Serial.println("================================");
     Serial.println();
 
     return true;
-
-  } else {
-
-    wifiConnected = false;
-
-    Serial.println();
-    Serial.println("================================");
-    Serial.println("WIFI CONNECTION FAILED");
-    Serial.println("================================");
-    Serial.println();
-
-    return false;
   }
+
+  // ----------------------------------------------------------
+  // FAILURE
+  // ----------------------------------------------------------
+
+  wifiConnected = false;
+
+  Serial.println();
+  Serial.println("================================");
+  Serial.println("WIFI CONNECTION FAILED");
+  Serial.println("================================");
+
+  printWiFiStatus();
+
+  Serial.println();
+
+  switch (WiFi.status()) {
+
+    case WL_NO_SSID_AVAIL:
+
+      Serial.println(
+        "Reason: Wi-Fi network was not found."
+      );
+
+      Serial.println(
+        "Check that the router is broadcasting 2.4 GHz."
+      );
+
+      break;
+
+    case WL_CONNECT_FAILED:
+
+      Serial.println(
+        "Reason: Connection failed."
+      );
+
+      Serial.println(
+        "Check the Wi-Fi password."
+      );
+
+      break;
+
+    case WL_CONNECTION_LOST:
+
+      Serial.println(
+        "Reason: Connection was lost."
+      );
+
+      break;
+
+    case WL_DISCONNECTED:
+
+      Serial.println(
+        "Reason: ESP32 is disconnected."
+      );
+
+      break;
+
+    default:
+
+      Serial.println(
+        "Reason: Unknown Wi-Fi error."
+      );
+
+      break;
+  }
+
+  Serial.println();
+  Serial.println(
+    "The ESP32 is ready for another attempt."
+  );
+
+  Serial.println(
+    "================================"
+  );
+  Serial.println();
+
+  // ----------------------------------------------------------
+  // VERY IMPORTANT
+  // ----------------------------------------------------------
+  // Cleanly terminate this failed attempt so the next
+  // WiFi.begin() can never collide with the old attempt.
+  // ----------------------------------------------------------
+
+  WiFi.disconnect(true, false);
+
+  delay(500);
+
+  // Restore AP + STA mode
+  WiFi.mode(WIFI_AP_STA);
+
+  delay(200);
+
+  // Make sure setup AP remains alive
+  if (
+    WiFi.softAPIP() == IPAddress(0, 0, 0, 0)
+  ) {
+
+    WiFi.softAP(
+      AP_SSID,
+      AP_PASSWORD,
+      1,
+      false,
+      4
+    );
+
+    delay(300);
+  }
+
+  return false;
 }
 
 
@@ -308,33 +601,49 @@ bool connectWiFi(String ssid, String password) {
 
 void setupWebServer() {
 
-  server.on("/", HTTP_GET, handleRoot);
+  server.on(
+    "/",
+    HTTP_GET,
+    handleRoot
+  );
 
-  server.on("/connect", HTTP_POST, handleConnect);
+  server.on(
+    "/connect",
+    HTTP_POST,
+    handleConnect
+  );
 
-  server.on("/reset", HTTP_GET, []() {
+  server.on(
+    "/reset",
+    HTTP_GET,
+    []() {
 
-    clearWiFiCredentials();
+      clearWiFiCredentials();
 
-    server.send(
-      200,
-      "text/html",
-      "<html><body>"
-      "<h2>Wi-Fi credentials cleared.</h2>"
-      "<p>Restarting ESP32...</p>"
-      "</body></html>"
-    );
+      server.send(
+        200,
+        "text/html",
+        "<html><body>"
+        "<h2>Wi-Fi credentials cleared.</h2>"
+        "<p>Restarting ESP32...</p>"
+        "</body></html>"
+      );
 
-    delay(1000);
+      delay(1000);
 
-    ESP.restart();
-  });
+      ESP.restart();
+    }
+  );
 
-  server.onNotFound(handleNotFound);
+  server.onNotFound(
+    handleNotFound
+  );
 
   server.begin();
 
-  Serial.println("Web server started.");
+  Serial.println(
+    "Web server started."
+  );
 }
 
 
@@ -671,25 +980,48 @@ void handleConnect() {
     return;
   }
 
-  String ssid = server.arg("ssid");
+  String ssid =
+    server.arg("ssid");
 
   String password = "";
 
   if (server.hasArg("password")) {
 
-    password = server.arg("password");
+    password =
+      server.arg("password");
   }
 
+  ssid.trim();
+
   Serial.println();
-  Serial.println("Wi-Fi credentials received from browser.");
+  Serial.println(
+    "Wi-Fi credentials received from browser."
+  );
 
-  bool success = connectWiFi(ssid, password);
+  Serial.print("New SSID: ");
+  Serial.println(ssid);
+
+  Serial.print("Password length: ");
+  Serial.println(password.length());
+
+  // ----------------------------------------------------------
+  // TRY NEW CONNECTION
+  // ----------------------------------------------------------
+
+  bool success =
+    connectWiFi(
+      ssid,
+      password
+    );
 
 
-  // ================= SUCCESS =================
+  // ==========================================================
+  // SUCCESS
+  // ==========================================================
 
   if (success) {
 
+    // Save ONLY after successful connection
     saveWiFiCredentials(
       ssid,
       password
@@ -774,8 +1106,10 @@ void handleConnect() {
 
       "<h1>Connection Established</h1>"
 
-      "<p>Your AERIS monitoring device is now connected "
-      "and ready for cloud synchronization.</p>"
+      "<p>"
+      "Your AERIS monitoring device is now connected "
+      "and ready for cloud synchronization."
+      "</p>"
 
       "<div class='ip'>Device IP: " +
       ip +
@@ -804,7 +1138,9 @@ void handleConnect() {
   }
 
 
-  // ================= FAILED =================
+  // ==========================================================
+  // FAILED
+  // ==========================================================
 
   String html = R"rawliteral(
 
@@ -909,8 +1245,10 @@ Connection Failed
 The ESP32 could not connect to the
 provided Wi-Fi network.
 
-Please check the network name and
-password and try again.
+<br><br>
+
+Check the network name and password
+and try again.
 
 </p>
 
@@ -966,23 +1304,27 @@ void readSensors() {
 
   if (!isnan(newTemperature)) {
 
-    temperature = newTemperature;
+    temperature =
+      newTemperature;
   }
 
   if (!isnan(newHumidity)) {
 
-    humidity = newHumidity;
+    humidity =
+      newHumidity;
   }
 
 
   // ---------------- MQ7 ----------------
 
-  mq7 = analogRead(MQ7_PIN);
+  mq7 =
+    analogRead(MQ7_PIN);
 
 
   // ---------------- MQ135 ----------------
 
-  mq135 = analogRead(MQ135_PIN);
+  mq135 =
+    analogRead(MQ135_PIN);
 
 
   // ---------------- SDS011 ----------------
@@ -1002,22 +1344,32 @@ void readSensors() {
   // ---------------- SERIAL OUTPUT ----------------
 
   Serial.println();
-  Serial.println("========== SENSOR DATA ==========");
+  Serial.println(
+    "========== SENSOR DATA =========="
+  );
 
   Serial.print("Temperature: ");
-  Serial.print(temperature);
+  Serial.print(
+    temperature
+  );
   Serial.println(" °C");
 
   Serial.print("Humidity: ");
-  Serial.print(humidity);
+  Serial.print(
+    humidity
+  );
   Serial.println(" %");
 
   Serial.print("PM2.5: ");
-  Serial.print(pm25);
+  Serial.print(
+    pm25
+  );
   Serial.println(" µg/m³");
 
   Serial.print("PM10: ");
-  Serial.print(pm10);
+  Serial.print(
+    pm10
+  );
   Serial.println(" µg/m³");
 
   Serial.print("MQ7: ");
@@ -1032,7 +1384,9 @@ void readSensors() {
   Serial.print("Status: ");
   Serial.println(currentStatus);
 
-  Serial.println("=================================");
+  Serial.println(
+    "================================="
+  );
 }
 
 
@@ -1042,38 +1396,63 @@ void readSensors() {
 
 void readSDS011() {
 
-  while (sdsSerial.available() >= 10) {
+  while (
+    sdsSerial.available() >= 10
+  ) {
 
     uint8_t buffer[10];
 
-    if (sdsSerial.read() != 0xAA) {
+    if (
+      sdsSerial.read() != 0xAA
+    ) {
+
       continue;
     }
 
-    buffer[0] = 0xAA;
+    buffer[0] =
+      0xAA;
 
-    for (int i = 1; i < 10; i++) {
+    for (
+      int i = 1;
+      i < 10;
+      i++
+    ) {
 
       buffer[i] =
         sdsSerial.read();
     }
 
-    if (buffer[1] != 0xC0) {
+    if (
+      buffer[1] != 0xC0
+    ) {
+
       continue;
     }
 
-    uint8_t checksum = 0;
+    uint8_t checksum =
+      0;
 
-    for (int i = 2; i <= 7; i++) {
+    for (
+      int i = 2;
+      i <= 7;
+      i++
+    ) {
 
-      checksum += buffer[i];
+      checksum +=
+        buffer[i];
     }
 
-    if (checksum != buffer[8]) {
+    if (
+      checksum != buffer[8]
+    ) {
+
       continue;
     }
 
-    if (buffer[9] != 0xAB) {
+    if (
+      buffer[9] != 0xAB
+    ) {
+
       continue;
     }
 
@@ -1209,7 +1588,9 @@ String getTimestamp() {
 
   struct tm timeinfo;
 
-  if (!getLocalTime(&timeinfo)) {
+  if (
+    !getLocalTime(&timeinfo)
+  ) {
 
     return "Not Synced";
   }
@@ -1233,7 +1614,9 @@ String getTimestamp() {
 
 void uploadSensorData() {
 
-  if (WiFi.status() != WL_CONNECTED) {
+  if (
+    WiFi.status() != WL_CONNECTED
+  ) {
 
     wifiConnected = false;
 
@@ -1252,10 +1635,12 @@ void uploadSensorData() {
 
   HTTPClient http;
 
-  if (!http.begin(
-        client,
-        FIRESTORE_URL
-      )) {
+  if (
+    !http.begin(
+      client,
+      FIRESTORE_URL
+    )
+  ) {
 
     Serial.println(
       "Firestore HTTP begin failed."
@@ -1336,13 +1721,20 @@ void uploadSensorData() {
   // ==========================================================
 
   Serial.println();
-  Serial.println("Uploading data to Firestore...");
+  Serial.println(
+    "Uploading data to Firestore..."
+  );
 
   int httpCode =
     http.PATCH(json);
 
-  Serial.print("Firestore HTTP code: ");
-  Serial.println(httpCode);
+  Serial.print(
+    "Firestore HTTP code: "
+  );
+
+  Serial.println(
+    httpCode
+  );
 
 
   if (httpCode > 0) {
@@ -1365,7 +1757,9 @@ void uploadSensorData() {
         "Firestore returned an error:"
       );
 
-      Serial.println(response);
+      Serial.println(
+        response
+      );
     }
 
   } else {
@@ -1390,7 +1784,9 @@ void uploadSensorData() {
 void checkResetButton() {
 
   bool pressed =
-    digitalRead(RESET_BUTTON_PIN) == LOW;
+    digitalRead(
+      RESET_BUTTON_PIN
+    ) == LOW;
 
   if (pressed) {
 
@@ -1407,7 +1803,8 @@ void checkResetButton() {
     }
 
     if (
-      millis() - resetButtonStart >= 3000
+      millis() -
+      resetButtonStart >= 3000
     ) {
 
       Serial.println();
@@ -1445,9 +1842,18 @@ void setup() {
 
   Serial.println();
   Serial.println();
-  Serial.println("================================");
-  Serial.println("        AERIS DEVICE BOOT       ");
-  Serial.println("================================");
+
+  Serial.println(
+    "================================"
+  );
+
+  Serial.println(
+    "        AERIS DEVICE BOOT"
+  );
+
+  Serial.println(
+    "================================"
+  );
 
 
   // ---------------- RESET BUTTON ----------------
@@ -1501,16 +1907,35 @@ void setup() {
 
   // ---------------- SAVED WIFI ----------------
 
-  if (savedSSID.length() > 0) {
+  if (
+    savedSSID.length() > 0
+  ) {
 
     Serial.println(
       "Saved Wi-Fi credentials found."
     );
 
-    connectWiFi(
-      savedSSID,
-      savedPassword
-    );
+    bool connected =
+      connectWiFi(
+        savedSSID,
+        savedPassword
+      );
+
+    if (!connected) {
+
+      Serial.println();
+      Serial.println(
+        "Saved Wi-Fi connection failed."
+      );
+
+      Serial.println(
+        "You can enter new credentials"
+      );
+
+      Serial.println(
+        "from the AERIS setup page."
+      );
+    }
 
   } else {
 
@@ -1531,9 +1956,17 @@ void setup() {
 
 
   Serial.println();
-  Serial.println("================================");
-  Serial.println("AERIS READY");
-  Serial.println("================================");
+  Serial.println(
+    "================================"
+  );
+
+  Serial.println(
+    "AERIS READY"
+  );
+
+  Serial.println(
+    "================================"
+  );
 
   Serial.print(
     "Setup page: http://"
@@ -1555,7 +1988,9 @@ void setup() {
     );
   }
 
-  Serial.println("================================");
+  Serial.println(
+    "================================"
+  );
 }
 
 
@@ -1564,6 +1999,10 @@ void setup() {
 // ============================================================
 
 void loop() {
+
+  // ----------------------------------------------------------
+  // WEB SERVER
+  // ----------------------------------------------------------
 
   server.handleClient();
 
@@ -1575,7 +2014,9 @@ void loop() {
   // ----------------------------------------------------------
 
   if (
-    millis() - lastSensorRead >= SENSOR_INTERVAL
+    millis() -
+    lastSensorRead >=
+    SENSOR_INTERVAL
   ) {
 
     lastSensorRead =
@@ -1593,11 +2034,71 @@ void loop() {
     WiFi.status() == WL_CONNECTED
   ) {
 
-    wifiConnected = true;
+    if (!wifiConnected) {
+
+      wifiConnected = true;
+
+      Serial.println();
+      Serial.println(
+        "Wi-Fi connection restored."
+      );
+
+      Serial.print(
+        "IP: "
+      );
+
+      Serial.println(
+        WiFi.localIP()
+      );
+    }
 
   } else {
 
-    wifiConnected = false;
+    if (wifiConnected) {
+
+      wifiConnected = false;
+
+      Serial.println();
+      Serial.println(
+        "Wi-Fi connection lost."
+      );
+
+      printWiFiStatus();
+    }
+  }
+
+
+  // ----------------------------------------------------------
+  // AUTOMATIC WIFI RECONNECT
+  // ----------------------------------------------------------
+  //
+  // Only try automatic reconnect if:
+  // 1. Credentials exist
+  // 2. Wi-Fi isn't connected
+  // 3. 30 seconds have passed
+  //
+  // ----------------------------------------------------------
+
+  if (
+    savedSSID.length() > 0 &&
+    WiFi.status() != WL_CONNECTED &&
+    millis() -
+    lastWiFiReconnectAttempt >=
+    WIFI_RECONNECT_INTERVAL
+  ) {
+
+    lastWiFiReconnectAttempt =
+      millis();
+
+    Serial.println();
+    Serial.println(
+      "Attempting automatic Wi-Fi reconnect..."
+    );
+
+    connectWiFi(
+      savedSSID,
+      savedPassword
+    );
   }
 
 
@@ -1606,7 +2107,9 @@ void loop() {
   // ----------------------------------------------------------
 
   if (
-    millis() - lastFirestoreUpload >= FIRESTORE_INTERVAL
+    millis() -
+    lastFirestoreUpload >=
+    FIRESTORE_INTERVAL
   ) {
 
     lastFirestoreUpload =

@@ -146,18 +146,27 @@ function formatValue(
 
 function formatTimestamp(value) {
 
-  if (typeof value !== "string") {
-    return value;
+  if (
+    typeof value !== "string" ||
+    !value ||
+    value === "Not Synced"
+  ) {
+
+    return value || "--";
+
   }
+
 
   const match =
     value.match(
       /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/
     );
 
+
   if (!match) {
     return value;
   }
+
 
   const [
     ,
@@ -169,7 +178,35 @@ function formatTimestamp(value) {
     second
   ] = match;
 
-  return `${day}-${month}-${year} ${hour}-${minute}-${second}`;
+
+  const date =
+    new Date(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+      Number(minute),
+      Number(second)
+    );
+
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+
+  return date.toLocaleString(
+    "en-IN",
+    {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false
+    }
+  );
 
 }
 
@@ -216,6 +253,7 @@ function renderGauge(
     return;
   }
 
+
   const aqi =
     Math.max(
       0,
@@ -225,8 +263,10 @@ function renderGauge(
       )
     );
 
+
   const category =
     classifyAQI(aqi);
+
 
   const width = 240;
   const height = 150;
@@ -235,6 +275,7 @@ function renderGauge(
   const cy = 130;
 
   const radius = 96;
+
 
   const angle =
     Math.PI -
@@ -284,17 +325,20 @@ function renderGauge(
         (tick / 300) *
         Math.PI;
 
+
       const outer =
         point(
           theta,
           106
         );
 
+
       const inner =
         point(
           theta,
           88
         );
+
 
       return `
 
@@ -440,7 +484,7 @@ function updateDashboard(fields) {
      TEMPERATURE FIX
 
      ESP32 sends: temp
-     Website previously expected: temperature
+     Website may expect: temperature
 
      Create an alias so BOTH work safely.
      ========================================================== */
@@ -450,16 +494,19 @@ function updateDashboard(fields) {
     values.temperature === undefined
   ) {
 
-    values.temperature = values.temp;
+    values.temperature =
+      values.temp;
 
   }
+
 
   if (
     values.temperature !== undefined &&
     values.temp === undefined
   ) {
 
-    values.temp = values.temperature;
+    values.temp =
+      values.temperature;
 
   }
 
@@ -486,6 +533,7 @@ function updateDashboard(fields) {
 
       const fieldName =
         element.dataset.field;
+
 
       element.textContent =
         formatValue(
@@ -531,19 +579,27 @@ function updateDashboard(fields) {
   );
 
 
-  /* ----------------------------------------------------------
-     Timestamp
-     ---------------------------------------------------------- */
+  /* ==========================================================
+     LAST SYNCHRONISED
+
+     ESP32 sends:
+     last_updated
+
+     Example:
+     2026-09-10 15:42:18
+     ========================================================== */
 
   setText(
     "[data-device-time]",
-    values.timestamp
+    values.last_updated
   );
 
 
   setText(
     "[data-last-updated]",
-    formatTimestamp(values.timestamp)
+    formatTimestamp(
+      values.last_updated
+    )
   );
 
 
@@ -559,6 +615,7 @@ function updateDashboard(fields) {
 
     status.style.color =
       category.color;
+
 
     status.style.backgroundColor =
       `${category.color}20`;
@@ -623,17 +680,22 @@ async function loadDevice() {
 
 
     /* --------------------------------------------------------
-       Firestore REST response example:
+       Firestore REST response:
 
        {
          fields: {
            temp: {
              doubleValue: 28.4
+           },
+
+           last_updated: {
+             stringValue: "2026-09-10 15:42:18"
            }
          }
        }
 
        -------------------------------------------------------- */
+
 
     updateDashboard(
       documentData.fields || {}
@@ -703,6 +765,7 @@ document.addEventListener(
        -------------------------------------------------------- */
 
     updateClock();
+
 
     setInterval(
       updateClock,
