@@ -141,6 +141,40 @@ function formatValue(
 
 
 /* ============================================================
+   TIMESTAMP FORMATTER
+   ============================================================ */
+
+function formatTimestamp(value) {
+
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  const match =
+    value.match(
+      /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/
+    );
+
+  if (!match) {
+    return value;
+  }
+
+  const [
+    ,
+    year,
+    month,
+    day,
+    hour,
+    minute,
+    second
+  ] = match;
+
+  return `${day}-${month}-${year} ${hour}-${minute}-${second}`;
+
+}
+
+
+/* ============================================================
    TEXT UPDATE HELPER
    ============================================================ */
 
@@ -509,7 +543,7 @@ function updateDashboard(fields) {
 
   setText(
     "[data-last-updated]",
-    values.timestamp
+    formatTimestamp(values.timestamp)
   );
 
 
